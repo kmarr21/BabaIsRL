@@ -9,7 +9,7 @@ import pandas as pd
 import random
 from tqdm import tqdm
 
-# GPU test!! Printing availability to console . . .
+# Add GPU test
 print(f"CUDA available: {torch.cuda.is_available()}")
 if torch.cuda.is_available():
     print(f"CUDA device: {torch.cuda.get_device_name(0)}")
@@ -215,7 +215,7 @@ def train_enhanced_dqn(template_name="basic", n_episodes=8000, max_t=300, eps_st
             generate_training_plots(
                 scores, eps_history, success_rate_history, wrong_key_attempts,
                 episode_steps, eval_episodes_x, eval_success_rates, eval_scores,
-                output_dir, i_episode, template_name
+                output_dir, i_episode, template_name, win_episodes, success_history
             )
             
             # Save log to CSV
@@ -234,7 +234,7 @@ def train_enhanced_dqn(template_name="basic", n_episodes=8000, max_t=300, eps_st
     generate_training_plots(
         scores, eps_history, success_rate_history, wrong_key_attempts,
         episode_steps, eval_episodes_x, eval_success_rates, eval_scores,
-        output_dir, n_episodes, template_name
+        output_dir, n_episodes, template_name, win_episodes, success_history
     )
     
     # Final log save
@@ -302,7 +302,7 @@ def evaluate_agent(agent, env, n_episodes=10):
 
 def generate_training_plots(scores, eps_history, success_rate_history, wrong_key_attempts,
                            episode_steps, eval_episodes, eval_success_rates, eval_scores,
-                           output_dir, episode_num, template_name):
+                           output_dir, episode_num, template_name, win_episodes, success_history):
     """Generate comprehensive training plots."""
     plt.figure(figsize=(15, 15))
     
@@ -410,15 +410,12 @@ def generate_training_plots(scores, eps_history, success_rate_history, wrong_key
     
     # Distribution of episode lengths for successful vs. failed episodes
     plt.figure(figsize=(12, 6))
-    if len(episode_steps) > 0 and len(success_rate_history) > 0:
+    if len(episode_steps) > 0 and len(success_history) > 0:
         # Create lists of episode lengths for successful and failed episodes
         success_lengths = []
         failure_lengths = []
         
         for i, step in enumerate(episode_steps):
-            # This is a running success rate, not a binary indicator
-            # For recent episodes, take episodes with high success rate
-            idx = min(i, len(success_rate_history)-1)
             is_success = i < len(win_episodes) and i+1 in win_episodes
             
             if is_success:
