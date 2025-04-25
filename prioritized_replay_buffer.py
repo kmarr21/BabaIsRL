@@ -43,7 +43,7 @@ class PrioritizedReplayBuffer:
         # Track successful episodes separately
         self.success_memory = []
         self.success_count = 0
-        self.max_success_episodes = 100  # Store up to 100 successful episodes
+        self.max_success_episodes = 200  # Store up to N successful episodes
         
     def push(self, state, action, next_state, reward, done, is_success=False):
         """Store a transition in the buffer.
