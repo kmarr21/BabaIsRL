@@ -184,7 +184,7 @@ class DQNAgentEnhanced:
         # Learn every update_every steps
         self.t_step = (self.t_step + 1) % self.update_every
         if self.t_step == 0 and len(self.memory) > self.batch_size:
-            self.learn(success_bias=0.5) # CAN ADJUST THIS FOR PRIORITY IN BUFFER
+            self.learn(success_bias=0.42) # CAN ADJUST THIS FOR PRIORITY IN BUFFER
         
         # Reset episode success if episode ended
         if done:
