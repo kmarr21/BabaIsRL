@@ -18,8 +18,8 @@ if torch.cuda.is_available():
 from template_lifo_corridors import TemplateLIFOCorridorsEnv
 from dqn_agent_enhanced import DQNAgentEnhanced
 
-def train_enhanced_dqn(template_name="basic_med", n_episodes=5000, max_t=200, eps_start=1.0, eps_end=0.01, eps_decay=0.9995, 
-                       render=False, checkpoint_dir='enhanced_results', eval_freq=200, eval_episodes=10):
+def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, eps_start=1.0, eps_end=0.005, eps_decay=0.998, 
+                       render=False, checkpoint_dir='enhanced_results', eval_freq=100, eval_episodes=10):
     """Train DQN agent on Enhanced LIFO Corridors environment.
     
     Args:
@@ -28,10 +28,10 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=5000, max_t=200, ep
         max_t (int): maximum number of timesteps per episode
         eps_start (float): starting value of epsilon for epsilon-greedy action selection
         eps_end (float): minimum value of epsilon
-        eps_decay (float): multiplicative factor for decreasing epsilon
+        eps_decay (float): multiplicative factor for decreasing epsilon (changed to 0.998)
         render (bool): whether to render the environment during training
         checkpoint_dir (str): directory to save checkpoints and results
-        eval_freq (int): frequency of evaluation during training
+        eval_freq (int): frequency of evaluation during training (changed to 100)
         eval_episodes (int): number of episodes to run during evaluation
     """
     # Create directory for results
@@ -435,10 +435,10 @@ if __name__ == "__main__":
     parser.add_argument('--template', type=str, default="basic_med", 
                         choices=["basic_med", "sparse_med", "zipper_med", "bottleneck_med", "corridors_med"],
                         help='Template to use')
-    parser.add_argument('--episodes', type=int, default=5000, help='Number of episodes')
+    parser.add_argument('--episodes', type=int, default=15000, help='Number of episodes')
     parser.add_argument('--render', action='store_true', help='Render the environment')
     parser.add_argument('--output', type=str, default='enhanced_results', help='Output directory prefix')
-    parser.add_argument('--eval-freq', type=int, default=200, help='Evaluation frequency')
+    parser.add_argument('--eval-freq', type=int, default=100, help='Evaluation frequency')
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
     
     args = parser.parse_args()
