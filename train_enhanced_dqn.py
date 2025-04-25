@@ -18,7 +18,7 @@ if torch.cuda.is_available():
 from template_lifo_corridors import TemplateLIFOCorridorsEnv
 from dqn_agent_enhanced import DQNAgentEnhanced
 
-def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, eps_start=1.0, eps_end=0.005, eps_decay=0.998, 
+def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, eps_start=1.0, eps_end=0.002, eps_decay=0.995, 
                        render=False, checkpoint_dir='enhanced_results', eval_freq=100, eval_episodes=10):
     """Train DQN agent on Enhanced LIFO Corridors environment.
     
