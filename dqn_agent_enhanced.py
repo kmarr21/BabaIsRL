@@ -17,42 +17,36 @@ class DQN(nn.Module):
     def __init__(self, state_size, action_size):
         super(DQN, self).__init__()
         
-        # Larger network for more complex environment
-        hidden_size1 = 256
-        hidden_size2 = 256
-        hidden_size3 = 128
+        # Network sizing - simpler architecture like original version
+        hidden_size1 = 128
+        hidden_size2 = 128
         
         self.fc1 = nn.Linear(state_size, hidden_size1)
         self.fc2 = nn.Linear(hidden_size1, hidden_size2)
-        self.fc3 = nn.Linear(hidden_size2, hidden_size3)
-        self.fc4 = nn.Linear(hidden_size3, action_size)
+        self.fc3 = nn.Linear(hidden_size2, hidden_size2 // 2)
+        self.fc4 = nn.Linear(hidden_size2 // 2, action_size)
         
         # Initialize weights with Xavier initialization
         nn.init.xavier_uniform_(self.fc1.weight)
         nn.init.xavier_uniform_(self.fc2.weight)
         nn.init.xavier_uniform_(self.fc3.weight)
         nn.init.xavier_uniform_(self.fc4.weight)
-        
-        # Add batch normalization for better training stability
-        self.bn1 = nn.BatchNorm1d(hidden_size1)
-        self.bn2 = nn.BatchNorm1d(hidden_size2)
-        self.bn3 = nn.BatchNorm1d(hidden_size3)
     
     def forward(self, x):
         # Handle single sample (during action selection)
         if x.dim() == 1:
             x = x.unsqueeze(0)
             
-        x = F.relu(self.bn1(self.fc1(x)))
-        x = F.relu(self.bn2(self.fc2(x)))
-        x = F.relu(self.bn3(self.fc3(x)))
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
         return self.fc4(x)
 
 class DQNAgentEnhanced:
     """Agent implementing DQN with prioritized experience replay for enhanced LIFO environment."""
     
     def __init__(self, state_size, action_size, seed=0, 
-                 learning_rate=0.0003, gamma=0.99, tau=0.001, 
+                 learning_rate=0.0005, gamma=0.99, tau=0.001,  # Learning rate increased to 0.0005
                  buffer_size=100000, batch_size=64, update_every=4):
         """Initialize agent parameters."""
         
