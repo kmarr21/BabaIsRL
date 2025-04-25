@@ -5,7 +5,7 @@ import argparse
 import random
 from template_lifo_corridors import TemplateLIFOCorridorsEnv
 
-def play_template_environment(template_name="basic"):
+def play_template_environment(template_name="basic_med"):
     """Play the Template LIFO Corridors environment using keyboard controls."""
     
     # Create environment with the chosen template
@@ -19,9 +19,8 @@ def play_template_environment(template_name="basic"):
     
     # Define color mapping for keys and doors - correctly map the colors
     key_door_colors = {
-        0: "Green", 
-        1: "Purple", 
-        2: "Orange"
+        0: "Orange", 
+        1: "Purple"
     }
     
     # Print instructions
@@ -39,8 +38,14 @@ def play_template_environment(template_name="basic"):
     print("R           - Reset environment")
     print("Q or ESC    - Quit\n")
     print("\nLIFO RULE: Only the most recently collected key can be used!")
-    print("Keys and doors are color-coded (green, purple, orange).")
-    print("Red robots move horizontally, blue robots move vertically.")
+    print("Keys and doors are color-coded (orange, purple).")
+    
+    # Print robot information based on the template
+    robot_type = env.enemies["types"][0]
+    if robot_type == "horizontal":
+        print("Blue robot moves horizontally.")
+    else:
+        print("Red robot moves vertically.")
     
     # Game state variables
     done = False
@@ -115,7 +120,7 @@ def play_template_environment(template_name="basic"):
             key_stack_info = f"Key stack: {env.key_stack}" if hasattr(env, 'key_stack') else ""
             
             print(f"Step {step_count}: Action={action_names[action]}, Reward={reward:.2f}, Total={total_reward:.2f}")
-            print(f"  Keys: {int(current_keys)}/3, Doors: {int(current_doors)}/3 {key_stack_info}")
+            print(f"  Keys: {int(current_keys)}/2, Doors: {int(current_doors)}/2 {key_stack_info}")
             
             # Check if episode is done
             if done:
@@ -140,8 +145,8 @@ def play_template_environment(template_name="basic"):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Play Template LIFO Corridors environment.')
-    parser.add_argument('--template', type=str, default="basic", 
-                       choices=["basic", "sparse", "zipper", "bottleneck", "corridors"],
+    parser.add_argument('--template', type=str, default="basic_med", 
+                       choices=["basic_med", "sparse_med", "zipper_med", "bottleneck_med", "corridors_med"],
                        help='Template name to use')
     parser.add_argument('--seed', type=int, default=None, help='Random seed')
     
