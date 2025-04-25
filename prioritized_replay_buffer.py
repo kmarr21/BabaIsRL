@@ -79,7 +79,7 @@ class PrioritizedReplayBuffer:
         # Update position
         self.position = (self.position + 1) % self.capacity
     
-    def sample(self, batch_size, success_bias=0.2):
+    def sample(self, batch_size, success_bias=0.4):
         """Sample a batch of transitions.
         
         Args:
