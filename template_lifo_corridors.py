@@ -290,7 +290,7 @@ class TemplateLIFOCorridorsEnv(gym.Env):
         self.steps_taken += 1
         
         # Default small step penalty to encourage efficiency
-        reward = -0.01
+        reward = -0.015
         done = False
         info = {}
         
@@ -445,7 +445,7 @@ class TemplateLIFOCorridorsEnv(gym.Env):
             info['terminated_reason'] = 'timeout'
         
         # Add distance-based reward shaping
-        reward += self._calculate_distance_reward() * 0.2 # CAN INCREASE to shape rewards more
+        reward += self._calculate_distance_reward() * 0.15 # CAN INCREASE to shape rewards more
         
         # Update total reward
         self.total_reward += reward
