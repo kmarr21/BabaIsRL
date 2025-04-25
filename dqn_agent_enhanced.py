@@ -184,7 +184,7 @@ class DQNAgentEnhanced:
         # Learn every update_every steps
         self.t_step = (self.t_step + 1) % self.update_every
         if self.t_step == 0 and len(self.memory) > self.batch_size:
-            self.learn()
+            self.learn(success_bias=0.4) # CAN ADJUST THIS FOR PRIORITY IN BUFFER
         
         # Reset episode success if episode ended
         if done:
@@ -206,10 +206,10 @@ class DQNAgentEnhanced:
         else:
             return random.choice(np.arange(self.action_size))
     
-    def learn(self):
+    def learn(self, success_bias=0.4):
         """Update value parameters using batch of experience tuples."""
-        # Sample a batch from memory with priorities
-        (state_batch, action_batch, next_state_batch, reward_batch, done_batch), importance_weights, indices = self.memory.sample(self.batch_size)
+        # Sample a batch from memory with priorities and increased success_bias
+        (state_batch, action_batch, next_state_batch, reward_batch, done_batch), importance_weights, indices = self.memory.sample(self.batch_size, success_bias=success_bias)
         
         # Convert to appropriate tensor shapes if needed
         if isinstance(action_batch, (list, tuple)):
