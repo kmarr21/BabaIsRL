@@ -162,8 +162,8 @@ class TemplateLIFOCorridorsEnv(gym.Env):
                 "agent_pos": [0, 0],  # Bunny starts in bottom-left
                 "enemies": {
                     "positions": [[2, 2]],  # Blue robot
-                    "directions": [0],  # up
-                    "types": ["vertical"]
+                    "directions": [1],  # Right
+                    "types": ["horizontal"]
                 },
                 "keys": {
                     "positions": [[2, 4], [4, 1]]  # Orange, Purple keys
@@ -204,7 +204,7 @@ class TemplateLIFOCorridorsEnv(gym.Env):
                 "agent_pos": [0, 0],  # Bunny starts in bottom-left
                 "enemies": {
                     "positions": [[2, 1]],  # Red robot
-                    "directions": [1],  # right
+                    "directions": [1],  # Up
                     "types": ["horizontal"]
                 },
                 "keys": {
@@ -225,7 +225,7 @@ class TemplateLIFOCorridorsEnv(gym.Env):
                 "agent_pos": [0, 0],  # Bunny starts in bottom-left
                 "enemies": {
                     "positions": [[3, 3]],  # Red robot
-                    "directions": [1],  # right
+                    "directions": [1],  # Up
                     "types": ["horizontal"]
                 },
                 "keys": {
@@ -300,7 +300,7 @@ class TemplateLIFOCorridorsEnv(gym.Env):
         # Reset game over message
         self.show_game_over = False
         
-        # FIRST calculate where robot WILL be after movement
+        # FIRST calculate where robots WILL be after movement
         next_enemy_positions = []
         current_enemy_positions = []
         next_enemy_directions = self.enemies['directions'].copy()
@@ -391,7 +391,7 @@ class TemplateLIFOCorridorsEnv(gym.Env):
                                 # Correct key - open door
                                 self.doors['open'][door_idx] = 1
                                 self.key_stack.pop()  # Use the key
-                                reward += 2.0
+                                reward += 3.0  # Increased from 2.0 to 3.0
                                 info['opened_door'] = door_idx
                                 self.agent_pos = new_pos
                                 moved = True
@@ -417,7 +417,7 @@ class TemplateLIFOCorridorsEnv(gym.Env):
             if key_idx is not None and not self.keys['collected'][key_idx]:
                 self.keys['collected'][key_idx] = 1
                 self.key_stack.append(key_idx)
-                reward += 1.0
+                reward += 2.0  # Increased from 1.0 to 2.0
                 info['collected_key'] = key_idx
         
         # Update enemy positions and directions (only if no future collision)
@@ -443,6 +443,9 @@ class TemplateLIFOCorridorsEnv(gym.Env):
         if self.steps_taken >= 100:
             done = True
             info['terminated_reason'] = 'timeout'
+        
+        # Add distance-based reward shaping
+        reward += self._calculate_distance_reward() * 0.1
         
         # Update total reward
         self.total_reward += reward
@@ -479,6 +482,53 @@ class TemplateLIFOCorridorsEnv(gym.Env):
         """Check if agent has collided with any enemy."""
         return any(np.array_equal(self.agent_pos, enemy_pos) 
                   for enemy_pos in self.enemies['positions'])
+    
+    def _calculate_distance_reward(self):
+        """Calculate reward based on distance to objectives."""
+        shaping_reward = 0.0
+        
+        # Find closest uncollected key
+        min_key_dist = float('inf')
+        for i, key_pos in enumerate(self.keys['positions']):
+            if not self.keys['collected'][i]:
+                dist = self._manhattan_distance(self.agent_pos, key_pos)
+                min_key_dist = min(min_key_dist, dist)
+        
+        # Find the door that matches the top key in our stack (if any)
+        if len(self.key_stack) > 0:
+            top_key = self.key_stack[-1]
+            if not self.doors['open'][top_key]:
+                door_dist = self._manhattan_distance(self.agent_pos, self.doors['positions'][top_key])
+                shaping_reward += 0.05 * (1.0 / (door_dist + 1))
+        
+        # If no matching door (or no keys), find any unopened door
+        elif min_key_dist == float('inf'):
+            min_door_dist = float('inf')
+            for i, door_pos in enumerate(self.doors['positions']):
+                if not self.doors['open'][i]:
+                    dist = self._manhattan_distance(self.agent_pos, door_pos)
+                    min_door_dist = min(min_door_dist, dist)
+            
+            if min_door_dist != float('inf'):
+                shaping_reward += 0.02 * (1.0 / (min_door_dist + 1))
+        
+        # Reward for being close to keys
+        if min_key_dist != float('inf'):
+            shaping_reward += 0.05 * (1.0 / (min_key_dist + 1))
+        
+        # Enemy avoidance reward
+        enemy_dist = float('inf')
+        for enemy_pos in self.enemies['positions']:
+            dist = self._manhattan_distance(self.agent_pos, enemy_pos)
+            enemy_dist = min(enemy_dist, dist)
+        
+        shaping_reward += 0.02 * min(enemy_dist, 3)  # Cap at distance of 3
+        
+        return shaping_reward
+    
+    def _manhattan_distance(self, pos1, pos2):
+        """Calculate Manhattan distance between two positions."""
+        return np.sum(np.abs(pos1 - pos2))
     
     def _get_obs(self):
         """Get current observation."""
