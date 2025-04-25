@@ -290,7 +290,7 @@ class TemplateLIFOCorridorsEnv(gym.Env):
         self.steps_taken += 1
         
         # Default small step penalty to encourage efficiency
-        reward = -0.03
+        reward = -0.01
         done = False
         info = {}
         
