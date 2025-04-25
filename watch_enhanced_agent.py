@@ -93,14 +93,14 @@ def watch_enhanced_agent(model_path, template_name="basic_med", num_episodes=10,
                 if verbose:
                     collected_key = info['collected_key']
                     color_name = key_door_colors[collected_key]
-                    print(f"Collected {color_name} key! +1.0 reward")
+                    print(f"Collected {color_name} key! +2.0 reward")
                 
             if 'opened_door' in info:
                 doors_opened += 1
                 if verbose:
                     opened_door = info['opened_door']
                     color_name = key_door_colors[opened_door]
-                    print(f"Opened {color_name} door! +2.0 reward")
+                    print(f"Opened {color_name} door! +3.0 reward")
                 
             if 'wrong_key_attempt' in info:
                 wrong_key_count += 1
