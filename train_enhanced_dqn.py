@@ -18,7 +18,7 @@ if torch.cuda.is_available():
 from template_lifo_corridors import TemplateLIFOCorridorsEnv
 from dqn_agent_enhanced import DQNAgentEnhanced
 
-def train_enhanced_dqn(template_name="basic", n_episodes=8000, max_t=300, eps_start=1.0, eps_end=0.01, eps_decay=0.9995, 
+def train_enhanced_dqn(template_name="basic_med", n_episodes=5000, max_t=200, eps_start=1.0, eps_end=0.01, eps_decay=0.9995, 
                        render=False, checkpoint_dir='enhanced_results', eval_freq=200, eval_episodes=10):
     """Train DQN agent on Enhanced LIFO Corridors environment.
     
@@ -415,13 +415,11 @@ def generate_training_plots(scores, eps_history, success_rate_history, wrong_key
         success_lengths = []
         failure_lengths = []
         
-        for i, step in enumerate(episode_steps):
-            is_success = i < len(win_episodes) and i+1 in win_episodes
-            
-            if is_success:
-                success_lengths.append(step)
+        for i in range(len(episode_steps)):
+            if i < len(success_history) and success_history[i] == 1:
+                success_lengths.append(episode_steps[i])
             else:
-                failure_lengths.append(step)
+                failure_lengths.append(episode_steps[i])
         
         if success_lengths and failure_lengths:
             plt.hist([success_lengths, failure_lengths], bins=20, label=['Success', 'Failure'], alpha=0.7)
@@ -434,10 +432,10 @@ def generate_training_plots(scores, eps_history, success_rate_history, wrong_key
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train DQN agent on Enhanced LIFO Corridors Environment')
-    parser.add_argument('--template', type=str, default="basic", 
-                        choices=["basic", "sparse", "zipper", "bottleneck", "corridors"],
+    parser.add_argument('--template', type=str, default="basic_med", 
+                        choices=["basic_med", "sparse_med", "zipper_med", "bottleneck_med", "corridors_med"],
                         help='Template to use')
-    parser.add_argument('--episodes', type=int, default=8000, help='Number of episodes')
+    parser.add_argument('--episodes', type=int, default=5000, help='Number of episodes')
     parser.add_argument('--render', action='store_true', help='Render the environment')
     parser.add_argument('--output', type=str, default='enhanced_results', help='Output directory prefix')
     parser.add_argument('--eval-freq', type=int, default=200, help='Evaluation frequency')
