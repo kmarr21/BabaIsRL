@@ -8,31 +8,31 @@ import time
 class TemplateLIFOCorridorsEnv(gym.Env):
     """
     Enhanced KeyCorridors environment with LIFO constraint using fixed templates.
-    - 8x8 grid
-    - 2 enemies with predictable movement
-    - 3 keys and 3 doors
+    - 6x6 grid (indexed 0-5 on both axes)
+    - 1 enemy with predictable movement
+    - 2 keys and 2 doors
     - LIFO constraint: only the most recently collected key can be used
     - Fixed templates with varying designs
     """
     
-    def __init__(self, template_name="basic", render_enabled=True, verbose=False):
+    def __init__(self, template_name="basic_med", render_enabled=True, verbose=False):
         """
         Initialize the environment.
         Args:
-            template_name: Name of the template to use ("basic", "sparse", "zipper", "bottleneck", "corridors")
+            template_name: Name of the template to use ("basic_med", "sparse_med", "zipper_med", "bottleneck_med", "corridors_med")
             render_enabled: Whether to render the environment
             verbose: Whether to print detailed information
         """
         super().__init__()
         
         # Grid size
-        self.size = 8
+        self.size = 6
         
         # Template name
         self.template_name = template_name
-        if template_name not in ["basic", "sparse", "zipper", "bottleneck", "corridors"]:
-            print(f"Warning: Unknown template '{template_name}'. Defaulting to 'basic'.")
-            self.template_name = "basic"
+        if template_name not in ["basic_med", "sparse_med", "zipper_med", "bottleneck_med", "corridors_med"]:
+            print(f"Warning: Unknown template '{template_name}'. Defaulting to 'basic_med'.")
+            self.template_name = "basic_med"
         
         # Rendering flag
         self.render_enabled = render_enabled
@@ -44,32 +44,31 @@ class TemplateLIFOCorridorsEnv(gym.Env):
         # Observation space
         self.observation_space = spaces.Dict({
             'agent': spaces.Box(low=0, high=self.size-1, shape=(2,), dtype=np.int32),
-            'enemies': spaces.Box(low=0, high=self.size-1, shape=(2, 2), dtype=np.int32),
-            'enemy_directions': spaces.Box(low=0, high=3, shape=(2,), dtype=np.int32),
-            'keys': spaces.Box(low=0, high=self.size-1, shape=(3, 2), dtype=np.int32),
-            'key_status': spaces.MultiBinary(3),
-            'doors': spaces.Box(low=0, high=self.size-1, shape=(3, 2), dtype=np.int32),
-            'door_status': spaces.MultiBinary(3),
-            'key_stack': spaces.Box(low=-1, high=2, shape=(3,), dtype=np.int32)  # LIFO stack of keys
+            'enemies': spaces.Box(low=0, high=self.size-1, shape=(1, 2), dtype=np.int32),
+            'enemy_directions': spaces.Box(low=0, high=3, shape=(1,), dtype=np.int32),
+            'keys': spaces.Box(low=0, high=self.size-1, shape=(2, 2), dtype=np.int32),
+            'key_status': spaces.MultiBinary(2),
+            'doors': spaces.Box(low=0, high=self.size-1, shape=(2, 2), dtype=np.int32),
+            'door_status': spaces.MultiBinary(2),
+            'key_stack': spaces.Box(low=-1, high=1, shape=(2,), dtype=np.int32)  # LIFO stack of keys
         })
         
         # Visualization settings
-        self.window_size = 640
+        self.window_size = 600
         self.panel_height = 80  # Height for key inventory panel
         self.cell_size = self.window_size // self.size
         self.window = None
         
         # Define colors for keys and doors (vibrant colors)
         self.key_door_colors = {
-            0: (50, 255, 50),     # Green
-            1: (255, 100, 255),   # Purple
-            2: (255, 165, 0)      # Orange
+            0: (255, 165, 0),   # Orange
+            1: (255, 100, 255)  # Purple
         }
         
         # Enemy colors
         self.enemy_colors = {
-            'horizontal': (255, 0, 0),     # Red for horizontal
-            'vertical': (0, 0, 255)        # Blue for vertical
+            'horizontal': (0, 0, 255),     # Blue for horizontal
+            'vertical': (255, 0, 0)        # Red for vertical
         }
         
         # Initialize pygame for rendering
@@ -132,113 +131,108 @@ class TemplateLIFOCorridorsEnv(gym.Env):
     def _define_templates(self):
         """Define the fixed templates."""
         templates = {
-            # Basic template
-            "basic": {
+            # Basic template (horizontal robot)
+            "basic_med": {
                 "name": "Basic",
-                "description": "A simple layout with a vertical corridor and scattered walls",
+                "description": "Simple layout with a few walls",
                 "walls": [
-                    [3, 2], [3, 3], [3, 4], [3, 5], [3, 6],  # Main vertical corridor
-                    [5, 3], [6, 3]  # Small horizontal wall extension
+                    [1, 3], [2, 3], [2, 2]
                 ],
                 "agent_pos": [0, 0],  # Bunny starts in bottom-left
                 "enemies": {
-                    "positions": [[6, 6], [2, 4]],  # Red robot, Blue robot
-                    "directions": [1, 0],  # Right, Up
-                    "types": ["horizontal", "vertical"]  # Red moves horizontally, Blue moves vertically
+                    "positions": [[3, 4]],  # Blue robot
+                    "directions": [1],  # Right
+                    "types": ["horizontal"]  # Blue moves horizontally
                 },
                 "keys": {
-                    "positions": [[1, 1], [7, 2], [4, 6]]  # Green, Orange, Purple keys
+                    "positions": [[2, 1], [3, 1]]  # Orange, Purple keys
                 },
                 "doors": {
-                    "positions": [[2, 2], [7, 5], [5, 1]]  # Green, Orange, Purple doors
+                    "positions": [[1, 2], [5, 5]]  # Orange, Purple doors
                 }
             },
             
-            # Sparse template
-            "sparse": {
+            # Sparse template (horizontal robot)
+            "sparse_med": {
                 "name": "Sparse",
-                "description": "Very few walls with mostly open space for robot avoidance",
+                "description": "Very few walls with mostly open space",
                 "walls": [
-                    [2, 2], [5, 5]  # Just two walls
+                    [1, 1], [3, 4]
                 ],
                 "agent_pos": [0, 0],  # Bunny starts in bottom-left
                 "enemies": {
-                    "positions": [[3, 6], [4, 4]],  # Red robot, Blue robot
-                    "directions": [1, 0],  # Right, Up
-                    "types": ["horizontal", "vertical"]
+                    "positions": [[2, 2]],  # Blue robot
+                    "directions": [0],  # up
+                    "types": ["vertical"]
                 },
                 "keys": {
-                    "positions": [[0, 7], [3, 2], [6, 1]]  # Green, Orange, Purple keys
+                    "positions": [[2, 4], [4, 1]]  # Orange, Purple keys
                 },
                 "doors": {
-                    "positions": [[1, 2], [6, 5], [4, 7]]  # Green, Orange, Purple doors
+                    "positions": [[4, 4], [1, 2]]  # Orange, Purple doors
                 }
             },
             
-            # Zipper template
-            "zipper": {
+            # Zipper template (vertical robot)
+            "zipper_med": {
                 "name": "Zipper",
-                "description": "Two parallel vertical corridors requiring careful timing",
+                "description": "Vertical corridor requiring careful timing",
                 "walls": [
-                    [2, 0], [2, 1], [2, 2], [2, 3], [2, 4], [2, 5],  # Left vertical corridor
-                    [5, 7], [5, 6], [5, 5], [5, 4], [5, 3], [5, 2]   # Right vertical corridor
+                    [1, 0], [1, 1], [1, 2], [1, 3], [3, 4], [3, 5]
                 ],
                 "agent_pos": [0, 0],  # Bunny starts in bottom-left
                 "enemies": {
-                    "positions": [[2, 6], [1, 0]],  # Red robot, Blue robot
-                    "directions": [1, 0],  # Right, Up
-                    "types": ["horizontal", "vertical"]
+                    "positions": [[3, 2]],  # Red robot
+                    "directions": [0],  # Up
+                    "types": ["vertical"]
                 },
                 "keys": {
-                    "positions": [[7, 7], [7, 6], [7, 5]]  # Purple, Green, Orange keys
+                    "positions": [[5, 5], [5, 4]]  # Orange, Purple keys
                 },
                 "doors": {
-                    "positions": [[0, 7], [3, 0], [7, 0]]  # Purple, Green, Orange doors
+                    "positions": [[0, 5], [5, 0]]  # Orange, Purple doors
                 }
             },
             
-            # Bottleneck template
-            "bottleneck": {
+            # Bottleneck template (vertical robot)
+            "bottleneck_med": {
                 "name": "Bottleneck",
-                "description": "Horizontal wall with a single gap, and vertical pathway",
+                "description": "Horizontal wall with a single gap",
                 "walls": [
-                    [0, 4], [1, 4], [2, 4], [3, 4], [4, 4], [5, 4], [7, 4],  # Horizontal wall with gap
-                    [4, 0], [4, 1], [4, 3]  # Vertical wall with gaps
+                    [0, 2], [1, 2], [2, 2], [4, 2], [5, 2]
                 ],
                 "agent_pos": [0, 0],  # Bunny starts in bottom-left
                 "enemies": {
-                    "positions": [[4, 6], [2, 2]],  # Red robot, Blue robot
-                    "directions": [1, 0],  # Right, Up
-                    "types": ["horizontal", "vertical"]
+                    "positions": [[2, 1]],  # Red robot
+                    "directions": [1],  # right
+                    "types": ["horizontal"]
                 },
                 "keys": {
-                    "positions": [[2, 3], [1, 6], [6, 1]]  # Purple, Orange, Green keys
+                    "positions": [[2, 0], [5, 4]]  # Orange, Purple keys
                 },
                 "doors": {
-                    "positions": [[4, 2], [7, 6], [6, 4]]  # Purple, Orange, Green doors
+                    "positions": [[3, 2], [0, 5]]  # Orange, Purple doors
                 }
             },
             
-            # Corridors template
-            "corridors": {
+            # Corridors template (vertical robot)
+            "corridors_med": {
                 "name": "Corridors",
                 "description": "Maze-like pattern with vertical corridors",
                 "walls": [
-                    [1, 1], [1, 2], [1, 4], [1, 6],  # Left vertical walls
-                    [3, 1], [3, 2], [3, 4], [3, 6],  # Middle vertical walls
-                    [5, 1], [5, 2], [5, 4], [5, 6]   # Right vertical walls
+                    [1, 1], [1, 2], [1, 4], [3, 1], [3, 2], [3, 4]
                 ],
                 "agent_pos": [0, 0],  # Bunny starts in bottom-left
                 "enemies": {
-                    "positions": [[2, 6], [4, 3]],  # Blue robot, Red robot
-                    "directions": [0, 1],  # Up, Right
-                    "types": ["vertical", "horizontal"]
+                    "positions": [[3, 3]],  # Red robot
+                    "directions": [1],  # right
+                    "types": ["horizontal"]
                 },
                 "keys": {
-                    "positions": [[1, 5], [2, 3], [5, 5]]  # Orange, Green, Purple keys
+                    "positions": [[4, 1], [1, 3]]  # Orange, Purple keys
                 },
                 "doors": {
-                    "positions": [[0, 7], [7, 7], [7, 0]]  # Purple, Orange, Green doors
+                    "positions": [[5, 5], [0, 5]]  # Orange, Purple doors
                 }
             }
         }
@@ -279,13 +273,13 @@ class TemplateLIFOCorridorsEnv(gym.Env):
         # Set key positions
         self.keys = {
             "positions": np.array(template["keys"]["positions"]),
-            "collected": np.zeros(3, dtype=np.int32)
+            "collected": np.zeros(2, dtype=np.int32)
         }
         
         # Set door positions
         self.doors = {
             "positions": np.array(template["doors"]["positions"]),
-            "open": np.zeros(3, dtype=np.int32)
+            "open": np.zeros(2, dtype=np.int32)
         }
         
         return self._get_obs(), {}
@@ -306,7 +300,7 @@ class TemplateLIFOCorridorsEnv(gym.Env):
         # Reset game over message
         self.show_game_over = False
         
-        # FIRST calculate where robots WILL be after movement
+        # FIRST calculate where robot WILL be after movement
         next_enemy_positions = []
         current_enemy_positions = []
         next_enemy_directions = self.enemies['directions'].copy()
@@ -446,7 +440,7 @@ class TemplateLIFOCorridorsEnv(gym.Env):
             info['success'] = True
         
         # Check timeout
-        if self.steps_taken >= 150:
+        if self.steps_taken >= 100:
             done = True
             info['terminated_reason'] = 'timeout'
         
@@ -489,8 +483,8 @@ class TemplateLIFOCorridorsEnv(gym.Env):
     def _get_obs(self):
         """Get current observation."""
         # Create a fixed-size representation of the key stack
-        key_stack_obs = np.ones(3, dtype=np.int32) * -1  # -1 indicates no key
-        for i, key_idx in enumerate(self.key_stack[-3:]):  # Only include last 3 keys
+        key_stack_obs = np.ones(2, dtype=np.int32) * -1  # -1 indicates no key
+        for i, key_idx in enumerate(self.key_stack[-2:]):  # Only include last 2 keys
             key_stack_obs[i] = key_idx
         
         return {
@@ -672,8 +666,8 @@ class TemplateLIFOCorridorsEnv(gym.Env):
         # Draw template, key count, etc.
         template_name = self.templates[self.template_name]["name"]
         template_text = f"Template: {template_name}"
-        key_text = f"Keys: {int(np.sum(self.keys['collected']))}/3"
-        door_text = f"Doors: {int(np.sum(self.doors['open']))}/3"
+        key_text = f"Keys: {int(np.sum(self.keys['collected']))}/2"
+        door_text = f"Doors: {int(np.sum(self.doors['open']))}/2"
         step_text = f"Steps: {self.steps_taken}"
         reward_text = f"Reward: {self.total_reward:.1f}"
         stack_text = f"Stack: {[i for i in self.key_stack]}" if self.key_stack else "Stack: []"
