@@ -11,7 +11,7 @@ from tqdm import tqdm
 from template_lifo_corridors import TemplateLIFOCorridorsEnv
 from dqn_agent_enhanced import DQNAgentEnhanced
 
-def watch_enhanced_agent(model_path, template_name="basic", num_episodes=10, delay=0.2, save_dir=None, verbose=True):
+def watch_enhanced_agent(model_path, template_name="basic_med", num_episodes=10, delay=0.2, save_dir=None, verbose=True):
     """Watch a trained agent navigate the enhanced LIFO environment with detailed metrics."""
     
     # Create output directory if needed
@@ -52,9 +52,8 @@ def watch_enhanced_agent(model_path, template_name="basic", num_episodes=10, del
     
     # Define color mapping for keys and doors
     key_door_colors = {
-        0: "Green", 
-        1: "Purple", 
-        2: "Orange"
+        0: "Orange", 
+        1: "Purple"
     }
     
     # Watch the agent
@@ -128,7 +127,7 @@ def watch_enhanced_agent(model_path, template_name="basic", num_episodes=10, del
             if verbose:
                 key_stack_info = f"Key stack: {env.key_stack}" if hasattr(env, 'key_stack') else ""
                 print(f"Step {step_count}: Action={action_names[action]}, Reward={reward:.2f}, "
-                    f"Keys={np.sum(state['key_status'])}/3, Doors={np.sum(state['door_status'])}/3 {key_stack_info}", 
+                    f"Keys={np.sum(state['key_status'])}/2, Doors={np.sum(state['door_status'])}/2 {key_stack_info}", 
                     end="\r")
             
             if done:
@@ -253,8 +252,8 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Watch a trained DQN agent in enhanced LIFO environment')
     parser.add_argument('--model', type=str, required=True, 
                         help='Path to model file')
-    parser.add_argument('--template', type=str, default="basic", 
-                       choices=["basic", "sparse", "zipper", "bottleneck", "corridors"],
+    parser.add_argument('--template', type=str, default="basic_med", 
+                       choices=["basic_med", "sparse_med", "zipper_med", "bottleneck_med", "corridors_med"],
                        help='Template to use')
     parser.add_argument('--episodes', type=int, default=10, help='Number of episodes to watch')
     parser.add_argument('--delay', type=float, default=0.1, help='Delay between steps (seconds)')
