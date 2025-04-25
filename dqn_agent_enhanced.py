@@ -141,26 +141,26 @@ class DQNAgentEnhanced:
                 next_usable_door_idx = top_key
         
         # One-hot encoding of top key in stack
-        top_key_onehot = np.zeros(4)  # 3 keys + no key
+        top_key_onehot = np.zeros(3)  # 2 keys + no key
         if len(key_stack) > 0 and key_stack[0] >= 0:
             top_key_onehot[key_stack[0]] = 1
         else:
-            top_key_onehot[3] = 1  # No key
+            top_key_onehot[2] = 1  # No key
         
         # Combine all features into a single vector
         state_vector = np.concatenate([
             agent_pos,                  # Agent position (2)
-            enemies_pos,                # Flattened enemy positions (4)
-            enemy_directions,           # Enemy directions (2)
-            key_status,                 # Key status (3)
-            door_status,                # Door status (3)
-            np.array(distances_to_keys, dtype=np.float32),      # Distances to keys (3)
-            np.array(distances_to_doors, dtype=np.float32),     # Distances to doors (3)
-            np.array(distances_to_enemies, dtype=np.float32),   # Distances to enemies (2)
+            enemies_pos,                # Flattened enemy positions (2)
+            enemy_directions,           # Enemy directions (1)
+            key_status,                 # Key status (2)
+            door_status,                # Door status (2)
+            np.array(distances_to_keys, dtype=np.float32),      # Distances to keys (2)
+            np.array(distances_to_doors, dtype=np.float32),     # Distances to doors (2)
+            np.array(distances_to_enemies, dtype=np.float32),   # Distances to enemies (1)
             np.array([keys_collected, doors_opened, keys_remaining, doors_remaining], dtype=np.float32),  # Summary stats (4)
             np.array([has_key, next_usable_door_dist, next_usable_door_idx], dtype=np.float32),  # LIFO features (3)
-            top_key_onehot,             # One-hot encoding of top key (4)
-            key_stack                   # Full key stack (3)
+            top_key_onehot,             # One-hot encoding of top key (3)
+            key_stack                   # Full key stack (2)
         ])
         
         return state_vector
