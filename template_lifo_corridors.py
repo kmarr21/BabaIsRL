@@ -445,7 +445,7 @@ class TemplateLIFOCorridorsEnv(gym.Env):
             info['terminated_reason'] = 'timeout'
         
         # Add distance-based reward shaping
-        reward += self._calculate_distance_reward() * 0.1
+        reward += self._calculate_distance_reward() * 0.2 # CAN INCREASE to shape rewards more
         
         # Update total reward
         self.total_reward += reward
