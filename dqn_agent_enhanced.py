@@ -46,7 +46,7 @@ class DQNAgentEnhanced:
     """Agent implementing DQN with prioritized experience replay for enhanced LIFO environment."""
     
     def __init__(self, state_size, action_size, seed=0, 
-                 learning_rate=0.0005, gamma=0.99, tau=0.001,  # Learning rate increased to 0.0005
+                 learning_rate=0.0003, gamma=0.99, tau=0.001,  # Learning rate increased to 0.0005
                  buffer_size=100000, batch_size=64, update_every=4):
         """Initialize agent parameters."""
         
