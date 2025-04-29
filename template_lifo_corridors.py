@@ -19,7 +19,7 @@ class TemplateLIFOCorridorsEnv(gym.Env):
         """
         Initialize the environment.
         Args:
-            template_name: Name of the template to use ("basic_med", "sparse_med", "zipper_med", "bottleneck_med", "corridors_med")
+            template_name: Name of the template to use ("basic_med", "sparse_med", "zipper_med", "bottleneck_med", "corridors_med", "bottleneck_hard")
             render_enabled: Whether to render the environment
             verbose: Whether to print detailed information
         """
@@ -30,7 +30,7 @@ class TemplateLIFOCorridorsEnv(gym.Env):
         
         # Template name
         self.template_name = template_name
-        if template_name not in ["basic_med", "sparse_med", "zipper_med", "bottleneck_med", "corridors_med"]:
+        if template_name not in ["basic_med", "sparse_med", "zipper_med", "bottleneck_med", "corridors_med", "bottleneck_hard"]:
             print(f"Warning: Unknown template '{template_name}'. Defaulting to 'basic_med'.")
             self.template_name = "basic_med"
         
@@ -212,6 +212,27 @@ class TemplateLIFOCorridorsEnv(gym.Env):
                 },
                 "doors": {
                     "positions": [[3, 2], [0, 5]]  # Orange, Purple doors
+                }
+            },
+            
+            # Bottleneck Hard template (vertical robot)
+            "bottleneck_hard": {
+                "name": "Bottleneck Hard",
+                "description": "Horizontal wall with a single gap and vertical moving enemy",
+                "walls": [
+                    [0, 3], [1, 3], [2, 3], [4, 3], [5, 3]
+                ],
+                "agent_pos": [0, 0],  # Bunny starts in bottom-left
+                "enemies": {
+                    "positions": [[2, 2]],  # Red robot
+                    "directions": [0],  # Up
+                    "types": ["vertical"]
+                },
+                "keys": {
+                    "positions": [[2, 0], [5, 0]]  # Orange, Purple keys
+                },
+                "doors": {
+                    "positions": [[3, 3], [0, 5]]  # Orange, Purple doors
                 }
             },
             
