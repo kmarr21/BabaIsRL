@@ -20,7 +20,7 @@ from dqn_agent_enhanced import DQNAgentEnhanced
 
 def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, eps_start=1.0, eps_end=0.005, eps_decay=0.998, 
                        render=False, checkpoint_dir='enhanced_results', eval_freq=100, eval_episodes=10,
-                       use_augmented_state=True):  # Add flag parameter
+                       use_augmented_state=True, use_reward_shaping=True):  # Add reward shaping flag
     """Train DQN agent on Enhanced LIFO Corridors environment.
     
     Args:
@@ -35,17 +35,20 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
         eval_freq (int): frequency of evaluation during training (changed to 100)
         eval_episodes (int): number of episodes to run during evaluation
         use_augmented_state (bool): whether to use augmented state representation
+        use_reward_shaping (bool): whether to use reward shaping
     """
     # Create directory for results
     augmented_str = "augmented" if use_augmented_state else "basic"
-    output_dir = f"{checkpoint_dir}_{template_name}_{augmented_str}"
+    shaping_str = "shaped" if use_reward_shaping else "raw"
+    output_dir = f"{checkpoint_dir}_{template_name}_{augmented_str}_{shaping_str}"
     os.makedirs(output_dir, exist_ok=True)
     
     # Log file for detailed statistics
     log_file = os.path.join(output_dir, 'training_log.csv')
     
     # Create environment
-    env = TemplateLIFOCorridorsEnv(template_name=template_name, render_enabled=False, verbose=False)
+    env = TemplateLIFOCorridorsEnv(template_name=template_name, render_enabled=False, 
+                                   verbose=False, use_reward_shaping=use_reward_shaping)
     
     # Get state and action sizes
     state, _ = env.reset()
@@ -54,10 +57,12 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
     state_size = len(temp_agent.preprocess_state(state))
     action_size = env.action_space.n
     
-    print(f"Template: {template_name}, State size: {state_size}, Action size: {action_size}, State representation: {augmented_str}")
+    print(f"Template: {template_name}, State size: {state_size}, Action size: {action_size}, "
+          f"State representation: {augmented_str}, Reward shaping: {shaping_str}")
     
     # Create agent
-    agent = DQNAgentEnhanced(state_size=state_size, action_size=action_size, seed=0, use_augmented_state=use_augmented_state)
+    agent = DQNAgentEnhanced(state_size=state_size, action_size=action_size, 
+                            seed=0, use_augmented_state=use_augmented_state)
     
     # Initialize epsilon
     eps = eps_start
@@ -201,7 +206,9 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
         
         # Periodically evaluate agent
         if i_episode % eval_freq == 0:
-            eval_success_rate, eval_avg_score, eval_wrong_key_rate = evaluate_agent(agent, env, n_episodes=eval_episodes)
+            eval_success_rate, eval_avg_score, eval_wrong_key_rate = evaluate_agent(
+                agent, env, n_episodes=eval_episodes
+            )
             
             eval_success_rates.append(eval_success_rate)
             eval_scores.append(eval_avg_score)
@@ -445,6 +452,7 @@ if __name__ == "__main__":
     parser.add_argument('--eval-freq', type=int, default=100, help='Evaluation frequency')
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
     parser.add_argument('--basic-state', action='store_true', help='Use basic state representation (no augmentation)')
+    parser.add_argument('--no-reward-shaping', action='store_true', help='Disable reward shaping')
     
     args = parser.parse_args()
     
@@ -457,7 +465,10 @@ if __name__ == "__main__":
     print(f"Template: {args.template}")
     print(f"Training for {args.episodes} episodes")
     print(f"State representation: {'Basic' if args.basic_state else 'Augmented'}")
-    print(f"Results will be saved to: {args.output}_{args.template}_{('basic' if args.basic_state else 'augmented')}")
+    print(f"Reward shaping: {'OFF' if args.no_reward_shaping else 'ON'}")
+    print(f"Results will be saved to: {args.output}_{args.template}_"
+          f"{'basic' if args.basic_state else 'augmented'}_"
+          f"{'raw' if args.no_reward_shaping else 'shaped'}")
     
     scores, win_episodes, success_rates, wrong_key_attempts = train_enhanced_dqn(
         template_name=args.template,
@@ -465,5 +476,6 @@ if __name__ == "__main__":
         render=args.render,
         checkpoint_dir=args.output,
         eval_freq=args.eval_freq,
-        use_augmented_state=not args.basic_state  # Toggle based on command-line arg
+        use_augmented_state=not args.basic_state,  # Toggle based on command-line arg
+        use_reward_shaping=not args.no_reward_shaping  # Toggle based on command-line arg
     )
