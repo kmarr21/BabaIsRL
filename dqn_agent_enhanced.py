@@ -47,7 +47,8 @@ class DQNAgentEnhanced:
     
     def __init__(self, state_size, action_size, seed=0, 
                  learning_rate=0.0003, gamma=0.99, tau=0.0005,
-                 buffer_size=100000, batch_size=128, update_every=8):
+                 buffer_size=100000, batch_size=128, update_every=8,
+                 use_augmented_state=True):  # Add flag parameter here
         """Initialize agent parameters."""
         
         self.state_size = state_size
@@ -58,6 +59,7 @@ class DQNAgentEnhanced:
         self.update_every = update_every
         self.batch_size = batch_size
         self.learning_rate = learning_rate
+        self.use_augmented_state = use_augmented_state  # Store the flag
         
         # Q-Networks (policy and target)
         self.policy_net = DQN(state_size, action_size).to(device)
@@ -81,6 +83,39 @@ class DQNAgentEnhanced:
         self.current_episode_success = False
     
     def preprocess_state(self, state_dict):
+        """Choose appropriate state preprocessing based on flag."""
+        if self.use_augmented_state:
+            return self.preprocess_state_augmented(state_dict)
+        else:
+            return self.preprocess_state_basic(state_dict)
+
+    def preprocess_state_basic(self, state_dict):
+        """Convert dictionary observation to flat vector without advanced features."""
+        # Extract basic components
+        agent_pos = state_dict['agent']
+        enemies_pos = state_dict['enemies'].flatten()
+        enemy_directions = state_dict['enemy_directions']
+        keys_pos = state_dict['keys'].flatten()
+        key_status = state_dict['key_status']
+        doors_pos = state_dict['doors'].flatten()
+        door_status = state_dict['door_status']
+        key_stack = state_dict['key_stack']
+        
+        # Combine basic features into a vector
+        state_vector = np.concatenate([
+            agent_pos,                  # Agent position (2)
+            enemies_pos,                # Flattened enemy positions (2)
+            enemy_directions,           # Enemy directions (1)
+            keys_pos,                   # Key positions (4)
+            key_status,                 # Key status (2)
+            doors_pos,                  # Door positions (4)
+            door_status,                # Door status (2)
+            key_stack                   # Key stack (2)
+        ])
+        
+        return state_vector
+    
+    def preprocess_state_augmented(self, state_dict):
         """Convert dictionary observation to flat vector with improved features for enhanced LIFO."""
         # Extract components
         agent_pos = state_dict['agent']
