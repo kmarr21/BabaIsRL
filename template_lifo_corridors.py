@@ -15,13 +15,15 @@ class TemplateLIFOCorridorsEnv(gym.Env):
     - Fixed templates with varying designs
     """
     
-    def __init__(self, template_name="basic_med", render_enabled=True, verbose=False):
+    def __init__(self, template_name="basic_med", render_enabled=True, verbose=False, 
+                 use_reward_shaping=True):  # Add reward shaping flag
         """
         Initialize the environment.
         Args:
             template_name: Name of the template to use ("basic_med", "sparse_med", "zipper_med", "bottleneck_med", "corridors_med", "bottleneck_hard")
             render_enabled: Whether to render the environment
             verbose: Whether to print detailed information
+            use_reward_shaping: Whether to use reward shaping for learning guidance
         """
         super().__init__()
         
@@ -37,6 +39,9 @@ class TemplateLIFOCorridorsEnv(gym.Env):
         # Rendering flag
         self.render_enabled = render_enabled
         self.verbose = verbose
+        
+        # Reward shaping flag
+        self.use_reward_shaping = use_reward_shaping
         
         # Action space: move in 4 directions or stay
         self.action_space = spaces.Discrete(5)
@@ -465,8 +470,9 @@ class TemplateLIFOCorridorsEnv(gym.Env):
             done = True
             info['terminated_reason'] = 'timeout'
         
-        # Add distance-based reward shaping
-        reward += self._calculate_distance_reward() * 0.25 # CAN INCREASE to shape rewards more
+        # Add distance-based reward shaping if enabled
+        if self.use_reward_shaping:
+            reward += self._calculate_distance_reward() * 0.25  # CAN INCREASE to shape rewards more
         
         # Update total reward
         self.total_reward += reward
@@ -742,6 +748,7 @@ class TemplateLIFOCorridorsEnv(gym.Env):
         step_text = f"Steps: {self.steps_taken}"
         reward_text = f"Reward: {self.total_reward:.1f}"
         stack_text = f"Stack: {[i for i in self.key_stack]}" if self.key_stack else "Stack: []"
+        shaping_text = f"Reward Shaping: {'ON' if self.use_reward_shaping else 'OFF'}"
         
         template_surf = font.render(template_text, True, (0, 0, 0))
         key_surf = font.render(key_text, True, (0, 0, 0))
@@ -749,6 +756,7 @@ class TemplateLIFOCorridorsEnv(gym.Env):
         step_surf = font.render(step_text, True, (0, 0, 0))
         reward_surf = font.render(reward_text, True, (0, 0, 0))
         stack_surf = font.render(stack_text, True, (0, 0, 0))
+        shaping_surf = font.render(shaping_text, True, (0, 0, 0))
         
         self.window.blit(template_surf, (10, 10))
         self.window.blit(key_surf, (10, 30))
@@ -756,6 +764,7 @@ class TemplateLIFOCorridorsEnv(gym.Env):
         self.window.blit(step_surf, (10, 70))
         self.window.blit(reward_surf, (10, 90))
         self.window.blit(stack_surf, (200, self.window_size + 40))
+        self.window.blit(shaping_surf, (200, self.window_size + 5))
         
         # Show "WRONG KEY!" message if needed
         if self.show_wrong_key:
