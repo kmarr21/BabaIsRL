@@ -19,7 +19,8 @@ from template_lifo_corridors import TemplateLIFOCorridorsEnv
 from dqn_agent_enhanced import DQNAgentEnhanced
 
 def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, eps_start=1.0, eps_end=0.005, eps_decay=0.998, 
-                       render=False, checkpoint_dir='enhanced_results', eval_freq=100, eval_episodes=10):
+                       render=False, checkpoint_dir='enhanced_results', eval_freq=100, eval_episodes=10,
+                       use_augmented_state=True):  # Add flag parameter
     """Train DQN agent on Enhanced LIFO Corridors environment.
     
     Args:
@@ -33,9 +34,11 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
         checkpoint_dir (str): directory to save checkpoints and results
         eval_freq (int): frequency of evaluation during training (changed to 100)
         eval_episodes (int): number of episodes to run during evaluation
+        use_augmented_state (bool): whether to use augmented state representation
     """
     # Create directory for results
-    output_dir = f"{checkpoint_dir}_{template_name}"
+    augmented_str = "augmented" if use_augmented_state else "basic"
+    output_dir = f"{checkpoint_dir}_{template_name}_{augmented_str}"
     os.makedirs(output_dir, exist_ok=True)
     
     # Log file for detailed statistics
@@ -46,14 +49,15 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
     
     # Get state and action sizes
     state, _ = env.reset()
-    temp_agent = DQNAgentEnhanced(0, 0)
+    # Create a temporary agent to get the preprocessed state size
+    temp_agent = DQNAgentEnhanced(0, 0, use_augmented_state=use_augmented_state)
     state_size = len(temp_agent.preprocess_state(state))
     action_size = env.action_space.n
     
-    print(f"Template: {template_name}, State size: {state_size}, Action size: {action_size}")
+    print(f"Template: {template_name}, State size: {state_size}, Action size: {action_size}, State representation: {augmented_str}")
     
     # Create agent
-    agent = DQNAgentEnhanced(state_size=state_size, action_size=action_size, seed=0)
+    agent = DQNAgentEnhanced(state_size=state_size, action_size=action_size, seed=0, use_augmented_state=use_augmented_state)
     
     # Initialize epsilon
     eps = eps_start
@@ -433,13 +437,14 @@ def generate_training_plots(scores, eps_history, success_rate_history, wrong_key
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train DQN agent on Enhanced LIFO Corridors Environment')
     parser.add_argument('--template', type=str, default="basic_med", 
-                        choices=["basic_med", "sparse_med", "zipper_med", "bottleneck_med", "corridors_med"],
+                        choices=["basic_med", "sparse_med", "zipper_med", "bottleneck_med", "bottleneck_hard", "corridors_med"],
                         help='Template to use')
     parser.add_argument('--episodes', type=int, default=15000, help='Number of episodes')
     parser.add_argument('--render', action='store_true', help='Render the environment')
     parser.add_argument('--output', type=str, default='enhanced_results', help='Output directory prefix')
     parser.add_argument('--eval-freq', type=int, default=100, help='Evaluation frequency')
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
+    parser.add_argument('--basic-state', action='store_true', help='Use basic state representation (no augmentation)')
     
     args = parser.parse_args()
     
@@ -451,12 +456,14 @@ if __name__ == "__main__":
     print(f"Starting DQN training for Enhanced LIFO environment...")
     print(f"Template: {args.template}")
     print(f"Training for {args.episodes} episodes")
-    print(f"Results will be saved to: {args.output}_{args.template}")
+    print(f"State representation: {'Basic' if args.basic_state else 'Augmented'}")
+    print(f"Results will be saved to: {args.output}_{args.template}_{('basic' if args.basic_state else 'augmented')}")
     
     scores, win_episodes, success_rates, wrong_key_attempts = train_enhanced_dqn(
         template_name=args.template,
         n_episodes=args.episodes, 
         render=args.render,
         checkpoint_dir=args.output,
-        eval_freq=args.eval_freq
+        eval_freq=args.eval_freq,
+        use_augmented_state=not args.basic_state  # Toggle based on command-line arg
     )
