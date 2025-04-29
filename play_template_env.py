@@ -146,7 +146,7 @@ def play_template_environment(template_name="basic_med"):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Play Template LIFO Corridors environment.')
     parser.add_argument('--template', type=str, default="basic_med", 
-                       choices=["basic_med", "sparse_med", "zipper_med", "bottleneck_med", "corridors_med"],
+                       choices=["basic_med", "sparse_med", "zipper_med", "bottleneck_med", "bottleneck_hard", "corridors_med"],
                        help='Template name to use')
     parser.add_argument('--seed', type=int, default=None, help='Random seed')
     
