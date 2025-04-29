@@ -16,14 +16,14 @@ class TemplateLIFOCorridorsEnv(gym.Env):
     """
     
     def __init__(self, template_name="basic_med", render_enabled=True, verbose=False, 
-                 use_reward_shaping=True):  # Add reward shaping flag
+                 use_reward_shaping=True):
         """
         Initialize the environment.
         Args:
-            template_name: Name of the template to use ("basic_med", "sparse_med", "zipper_med", "bottleneck_med", "corridors_med", "bottleneck_hard")
+            template_name: Name of the template to use
             render_enabled: Whether to render the environment
             verbose: Whether to print detailed information
-            use_reward_shaping: Whether to use reward shaping for learning guidance
+            use_reward_shaping: Whether to use reward shaping
         """
         super().__init__()
         
@@ -46,16 +46,18 @@ class TemplateLIFOCorridorsEnv(gym.Env):
         # Action space: move in 4 directions or stay
         self.action_space = spaces.Discrete(5)
         
-        # Observation space
+        # Observation space - now includes enemy_types and walls
         self.observation_space = spaces.Dict({
             'agent': spaces.Box(low=0, high=self.size-1, shape=(2,), dtype=np.int32),
             'enemies': spaces.Box(low=0, high=self.size-1, shape=(1, 2), dtype=np.int32),
             'enemy_directions': spaces.Box(low=0, high=3, shape=(1,), dtype=np.int32),
+            'enemy_types': spaces.MultiDiscrete([2]),  # 0: horizontal, 1: vertical
             'keys': spaces.Box(low=0, high=self.size-1, shape=(2, 2), dtype=np.int32),
             'key_status': spaces.MultiBinary(2),
             'doors': spaces.Box(low=0, high=self.size-1, shape=(2, 2), dtype=np.int32),
             'door_status': spaces.MultiBinary(2),
-            'key_stack': spaces.Box(low=-1, high=1, shape=(2,), dtype=np.int32)  # LIFO stack of keys
+            'key_stack': spaces.Box(low=-1, high=1, shape=(2,), dtype=np.int32),  # LIFO stack of keys
+            'walls': spaces.Box(low=0, high=self.size-1, shape=(10, 2), dtype=np.int32)  # Up to 10 walls
         })
         
         # Visualization settings
@@ -563,16 +565,30 @@ class TemplateLIFOCorridorsEnv(gym.Env):
         key_stack_obs = np.ones(2, dtype=np.int32) * -1  # -1 indicates no key
         for i, key_idx in enumerate(self.key_stack[-2:]):  # Only include last 2 keys
             key_stack_obs[i] = key_idx
+            
+        # Convert enemy types to numerical representation
+        enemy_types_enum = np.array([
+            1 if enemy_type == 'vertical' else 0 
+            for enemy_type in self.enemies['types']
+        ])
+        
+        # Pad walls array to fixed size
+        wall_array = np.ones((10, 2), dtype=np.int32) * -1  # -1 indicates no wall
+        for i, wall in enumerate(self.walls):
+            if i < 10:  # Only include up to 10 walls
+                wall_array[i] = wall
         
         return {
             'agent': self.agent_pos,
             'enemies': self.enemies['positions'],
             'enemy_directions': self.enemies['directions'],
+            'enemy_types': enemy_types_enum,
             'keys': self.keys['positions'],
             'key_status': self.keys['collected'],
             'doors': self.doors['positions'],
             'door_status': self.doors['open'],
-            'key_stack': key_stack_obs  # LIFO stack representation
+            'key_stack': key_stack_obs,  # LIFO stack representation
+            'walls': wall_array  # Wall positions
         }
     
     def render(self):
