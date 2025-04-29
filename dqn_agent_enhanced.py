@@ -48,7 +48,7 @@ class DQNAgentEnhanced:
     def __init__(self, state_size, action_size, seed=0, 
                  learning_rate=0.0003, gamma=0.99, tau=0.0005,
                  buffer_size=100000, batch_size=128, update_every=8,
-                 use_augmented_state=True):  # Add flag parameter here
+                 use_augmented_state=True, use_enemy_prediction=True):  # Add enemy prediction flag
         """Initialize agent parameters."""
         
         self.state_size = state_size
@@ -59,7 +59,8 @@ class DQNAgentEnhanced:
         self.update_every = update_every
         self.batch_size = batch_size
         self.learning_rate = learning_rate
-        self.use_augmented_state = use_augmented_state  # Store the flag
+        self.use_augmented_state = use_augmented_state
+        self.use_enemy_prediction = use_enemy_prediction and use_augmented_state  # Only use prediction if using augmented state
         
         # Q-Networks (policy and target)
         self.policy_net = DQN(state_size, action_size).to(device)
@@ -119,14 +120,16 @@ class DQNAgentEnhanced:
         """Convert dictionary observation to flat vector with improved features for enhanced LIFO."""
         # Extract components
         agent_pos = state_dict['agent']
-        enemies_pos = state_dict['enemies'].flatten()
+        enemies_pos = state_dict['enemies']
         enemy_directions = state_dict['enemy_directions']
+        enemy_types = state_dict.get('enemy_types', ['horizontal'] * len(enemies_pos))  # Default to horizontal if not provided
         keys_pos = state_dict['keys'].flatten()
         key_status = state_dict['key_status']
         doors_pos = state_dict['doors'].flatten()
         door_status = state_dict['door_status']
         key_stack = state_dict['key_stack']
         
+        # Original augmented features
         # Calculate distances to keys and doors using Manhattan distance
         distances_to_keys = []
         for i, key_pos in enumerate(state_dict['keys']):
@@ -146,7 +149,7 @@ class DQNAgentEnhanced:
         
         # Calculate distances to enemies
         distances_to_enemies = []
-        for enemy_pos in state_dict['enemies']:
+        for enemy_pos in enemies_pos:
             dist = np.abs(agent_pos[0] - enemy_pos[0]) + np.abs(agent_pos[1] - enemy_pos[1])
             distances_to_enemies.append(dist)
         
@@ -176,10 +179,10 @@ class DQNAgentEnhanced:
         else:
             top_key_onehot[2] = 1  # No key
         
-        # Combine all features into a single vector
-        state_vector = np.concatenate([
+        # Combine all standard augmented features
+        augmented_features = [
             agent_pos,                  # Agent position (2)
-            enemies_pos,                # Flattened enemy positions (2)
+            enemies_pos.flatten(),      # Flattened enemy positions (2)
             enemy_directions,           # Enemy directions (1)
             key_status,                 # Key status (2)
             door_status,                # Door status (2)
@@ -190,9 +193,129 @@ class DQNAgentEnhanced:
             np.array([has_key, next_usable_door_dist, next_usable_door_idx], dtype=np.float32),  # LIFO features (3)
             top_key_onehot,             # One-hot encoding of top key (3)
             key_stack                   # Full key stack (2)
-        ])
+        ]
+        
+        # If enemy prediction is enabled, add those features
+        if self.use_enemy_prediction:
+            enemy_prediction_features = self._calculate_enemy_prediction_features(
+                agent_pos, enemies_pos, enemy_directions, enemy_types, state_dict.get('walls', [])
+            )
+            augmented_features.append(enemy_prediction_features)
+        
+        # Combine all features into a single vector
+        state_vector = np.concatenate(augmented_features)
         
         return state_vector
+    
+    def _calculate_enemy_prediction_features(self, agent_pos, enemies_pos, enemy_directions, enemy_types, walls):
+        """Calculate features related to predicted enemy movements."""
+        # Will store all prediction features
+        prediction_features = []
+        
+        # Grid size (assuming 6x6 based on the environment)
+        grid_size = 6
+        
+        # Calculate next positions for all enemies
+        next_positions = []
+        is_turning = []  # Track if the enemy is about to turn (hit a wall)
+        
+        for i, enemy_pos in enumerate(enemies_pos):
+            direction = enemy_directions[i]
+            enemy_type = enemy_types[i] if i < len(enemy_types) else "horizontal"  # Default to horizontal
+            
+            # Direction vectors
+            move_vectors = {
+                0: np.array([0, 1]),   # up
+                1: np.array([1, 0]),   # right
+                2: np.array([0, -1]),  # down
+                3: np.array([-1, 0])   # left
+            }
+            
+            # Get movement vector
+            move = move_vectors[direction]
+            
+            # Calculate next position
+            next_pos = enemy_pos.copy() + move
+            
+            # Check if the position is valid (within grid and not a wall)
+            pos_valid = (0 <= next_pos[0] < grid_size and 
+                         0 <= next_pos[1] < grid_size and
+                         not self._is_wall(next_pos, walls))
+            
+            if pos_valid:
+                next_positions.append(next_pos)
+                is_turning.append(0)  # Not turning
+            else:
+                # Enemy will stay in place and turn
+                next_positions.append(enemy_pos.copy())
+                is_turning.append(1)  # Turning
+        
+        # Feature 1: Is agent in immediate danger (next position of any enemy)?
+        in_immediate_danger = 0
+        for next_pos in next_positions:
+            if np.array_equal(agent_pos, next_pos):
+                in_immediate_danger = 1
+                break
+        
+        prediction_features.append(in_immediate_danger)
+        
+        # Feature 2: Is agent in a path of an enemy (in the same row/column)?
+        in_enemy_path = 0
+        for i, enemy_pos in enumerate(enemies_pos):
+            enemy_type = enemy_types[i] if i < len(enemy_types) else "horizontal"
+            direction = enemy_directions[i]
+            
+            if enemy_type == "horizontal":
+                # Same row and enemy can reach agent
+                if enemy_pos[1] == agent_pos[1]:
+                    if (direction == 1 and enemy_pos[0] < agent_pos[0]) or \
+                       (direction == 3 and enemy_pos[0] > agent_pos[0]):
+                        # Check if there are walls in between
+                        path_clear = True
+                        for x in range(min(enemy_pos[0], agent_pos[0]) + 1, max(enemy_pos[0], agent_pos[0])):
+                            if self._is_wall(np.array([x, enemy_pos[1]]), walls):
+                                path_clear = False
+                                break
+                        if path_clear:
+                            in_enemy_path = 1
+                            break
+            else:  # vertical
+                # Same column and enemy can reach agent
+                if enemy_pos[0] == agent_pos[0]:
+                    if (direction == 0 and enemy_pos[1] < agent_pos[1]) or \
+                       (direction == 2 and enemy_pos[1] > agent_pos[1]):
+                        # Check if there are walls in between
+                        path_clear = True
+                        for y in range(min(enemy_pos[1], agent_pos[1]) + 1, max(enemy_pos[1], agent_pos[1])):
+                            if self._is_wall(np.array([enemy_pos[0], y]), walls):
+                                path_clear = False
+                                break
+                        if path_clear:
+                            in_enemy_path = 1
+                            break
+        
+        prediction_features.append(in_enemy_path)
+        
+        # Feature 3: Distance to nearest enemy's next position
+        min_next_dist = float('inf')
+        for next_pos in next_positions:
+            dist = np.abs(agent_pos[0] - next_pos[0]) + np.abs(agent_pos[1] - next_pos[1])
+            min_next_dist = min(min_next_dist, dist)
+        
+        if min_next_dist == float('inf'):
+            min_next_dist = -1  # No enemy
+        
+        prediction_features.append(min_next_dist)
+        
+        # Feature 4: Is any enemy about to turn? (useful for timing)
+        any_turning = 1 if any(is_turning) else 0
+        prediction_features.append(any_turning)
+        
+        return np.array(prediction_features, dtype=np.float32)
+    
+    def _is_wall(self, pos, walls):
+        """Check if a position contains a wall."""
+        return any(np.array_equal(pos, wall) for wall in walls)
     
     def step(self, state, action, reward, next_state, done, info=None):
         """Process a step and learn if appropriate."""
