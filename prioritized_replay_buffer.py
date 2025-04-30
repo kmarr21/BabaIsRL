@@ -40,10 +40,10 @@ class PrioritizedReplayBuffer:
         # Priorities with small epsilon to avoid zero probabilities
         self.priorities = np.zeros((capacity,), dtype=np.float32)
         
-        # Track successful episodes separately
+        # Track successful episodes separately - increased capacity
         self.success_memory = []
         self.success_count = 0
-        self.max_success_episodes = 200  # Store up to N successful episodes
+        self.max_success_episodes = 500  # Increased from 200 to 500
         
     def push(self, state, action, next_state, reward, done, is_success=False):
         """Store a transition in the buffer.
@@ -62,11 +62,16 @@ class PrioritizedReplayBuffer:
         transition = Transition(state, action, next_state, reward, done)
         
         # For successful episodes, store separately
-        if is_success and self.success_count < self.max_success_episodes:
-            self.success_memory.append(transition)
-            self.success_count += 1
+        if is_success and done:
+            if self.success_count < self.max_success_episodes:
+                self.success_memory.append(transition)
+                self.success_count += 1
+            elif self.success_count >= self.max_success_episodes:
+                # If success buffer full, replace a random successful episode
+                replace_idx = random.randint(0, self.max_success_episodes - 1)
+                self.success_memory[replace_idx] = transition
         
-        # Store in main memory with max priority
+        # Store in main memory
         if len(self.memory) < self.capacity:
             self.memory.append(transition)
             self.size += 1
