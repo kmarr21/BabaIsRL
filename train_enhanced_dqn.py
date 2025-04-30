@@ -18,7 +18,7 @@ if torch.cuda.is_available():
 from template_lifo_corridors import TemplateLIFOCorridorsEnv
 from dqn_agent_enhanced import DQNAgentEnhanced
 
-def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, eps_start=1.0, eps_end=0.005, eps_decay=0.998, 
+def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, eps_start=1.0, eps_end=0.05, eps_decay=0.998, 
                        render=False, checkpoint_dir='enhanced_results', eval_freq=100, eval_episodes=10,
                        use_augmented_state=True, use_reward_shaping=True):
     """Train DQN agent on Enhanced LIFO Corridors environment.
@@ -28,11 +28,11 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
         n_episodes (int): maximum number of training episodes
         max_t (int): maximum number of timesteps per episode
         eps_start (float): starting value of epsilon for epsilon-greedy action selection
-        eps_end (float): minimum value of epsilon
-        eps_decay (float): multiplicative factor for decreasing epsilon (changed to 0.998)
+        eps_end (float): minimum value of epsilon (modified to 0.05 for minimal exploration)
+        eps_decay (float): multiplicative factor for decreasing epsilon
         render (bool): whether to render the environment during training
         checkpoint_dir (str): directory to save checkpoints and results
-        eval_freq (int): frequency of evaluation during training (changed to 100)
+        eval_freq (int): frequency of evaluation during training
         eval_episodes (int): number of episodes to run during evaluation
         use_augmented_state (bool): whether to use augmented state representation
         use_reward_shaping (bool): whether to use reward shaping
@@ -40,7 +40,7 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
     # Create directory for results
     augmented_str = "augmented" if use_augmented_state else "basic"
     shaping_str = "shaped" if use_reward_shaping else "raw"
-    output_dir = f"{checkpoint_dir}_{template_name}_{augmented_str}_{shaping_str}"
+    output_dir = f"{checkpoint_dir}_{template_name}_{augmented_str}_{shaping_str}_stable"
     os.makedirs(output_dir, exist_ok=True)
     
     # Log file for detailed statistics
@@ -60,6 +60,7 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
     print(f"Template: {template_name}, State size: {state_size}, Action size: {action_size}")
     print(f"State representation: {augmented_str}")
     print(f"Reward shaping: {shaping_str}")
+    print(f"Using stabilized training with adaptive learning rate and policy snapshots")
     
     # Create agent
     agent = DQNAgentEnhanced(state_size=state_size, action_size=action_size, 
@@ -67,6 +68,10 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
     
     # Initialize epsilon
     eps = eps_start
+    
+    # For tracking previous evaluation metrics
+    prev_eval_success_rate = 0.0
+    best_eval_success_rate = 0.0
     
     # Lists and metrics to track progress
     scores = []
@@ -166,7 +171,8 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
         else:
             success_rate = sum(success_history) / len(success_history)
         
-        agent.current_success_rate = success_rate
+        # Update agent's success rate
+        agent.update_success_rate(success_rate)
         success_rate_history.append(success_rate)
         
         # Log data for this episode
@@ -180,8 +186,13 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
         log_data['wrong_key_attempts'].append(wrong_key_count)
         log_data['termination_reason'].append(termination_reason)
         
-        # Update epsilon
-        eps = max(eps_end, eps_decay * eps)
+        # Update epsilon - implement minimum exploration strategy
+        if success_rate >= 0.9:
+            # Keep at minimum value once we have high success
+            eps = eps_end
+        else:
+            # Normal decay otherwise
+            eps = max(eps_end, eps_decay * eps)
         
         # Check if episode was a win
         if success:
@@ -221,7 +232,13 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
             print(f"  Average Score: {eval_avg_score:.2f}")
             print(f"  Wrong Key Rate: {eval_wrong_key_rate:.4f}")
             
-            # Save checkpoint
+            # Track best evaluation performance
+            if eval_success_rate > best_eval_success_rate and eval_success_rate >= 0.8:
+                best_eval_success_rate = eval_success_rate
+                agent.save(f"{output_dir}/dqn_best_policy.pth")
+                print(f"  Saved best policy with success rate: {best_eval_success_rate:.3f}")
+            
+            # Regular checkpoint
             agent.save(f"{output_dir}/dqn_checkpoint_{i_episode}.pth")
             
             # Generate and save plots
@@ -233,6 +250,9 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
             
             # Save log to CSV
             pd.DataFrame(log_data).to_csv(log_file, index=False)
+            
+            # Update previous evaluation success rate
+            prev_eval_success_rate = eval_success_rate
     
     # Close progress bar
     pbar.close()
@@ -470,7 +490,7 @@ if __name__ == "__main__":
     print(f"Reward shaping: {'OFF' if args.no_reward_shaping else 'ON'}")
     print(f"Results will be saved to: {args.output}_{args.template}_"
           f"{'basic' if args.basic_state else 'augmented'}_"
-          f"{'raw' if args.no_reward_shaping else 'shaped'}")
+          f"{'raw' if args.no_reward_shaping else 'shaped'}_stable")
     
     scores, win_episodes, success_rates, wrong_key_attempts = train_enhanced_dqn(
         template_name=args.template,
