@@ -223,9 +223,9 @@ class DQNAgentEnhanced:
         self.t_step = (self.t_step + 1) % self.update_every
         if self.t_step == 0 and len(self.memory) > self.batch_size:
             # Determine success bias based on current success rate
-            if self.current_success_rate >= 0.5:
+            if self.current_success_rate >= 0.7:
                 # High success rate - focus more on successful episodes
-                success_bias = 0.6
+                success_bias = 0.5
             else:
                 # Low success rate - default exploration balance
                 success_bias = 0.3
