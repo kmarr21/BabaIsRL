@@ -203,13 +203,61 @@ class DQNAgentEnhanced:
         
         return state_vector
     
+    def _bfs_distance(self, state_dict, start_pos, target_pos):
+        """Calculate the shortest path distance accounting for walls using BFS."""
+        # Extract walls from state_dict
+        walls = []
+        for wall in state_dict['walls']:
+            if wall[0] >= 0:  # Filter out -1 placeholders
+                walls.append((wall[0], wall[1]))
+        
+        # Grid size (assumed to be 6x6 as in the environment)
+        grid_size = 6
+        
+        # Check if positions are valid
+        if not (0 <= start_pos[0] < grid_size and 0 <= start_pos[1] < grid_size and
+                0 <= target_pos[0] < grid_size and 0 <= target_pos[1] < grid_size):
+            return float('inf')  # Invalid position
+        
+        # If start and target are the same
+        if np.array_equal(start_pos, target_pos):
+            return 0
+        
+        # Convert positions to tuples for use in sets/dictionaries
+        start = tuple(start_pos)
+        target = tuple(target_pos)
+        
+        # BFS queue
+        queue = deque([(start, 0)])  # (position, distance)
+        visited = {start}
+        
+        # Possible movements: up, right, down, left
+        moves = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+        
+        while queue:
+            (x, y), dist = queue.popleft()
+            
+            # Check all possible moves
+            for dx, dy in moves:
+                nx, ny = x + dx, y + dy
+                new_pos = (nx, ny)
+                
+                # Check if new position is valid and not a wall
+                if (0 <= nx < grid_size and 0 <= ny < grid_size and 
+                    new_pos not in visited and 
+                    new_pos not in walls):
+                    
+                    if new_pos == target:
+                        return dist + 1  # Found the target
+                    
+                    visited.add(new_pos)
+                    queue.append((new_pos, dist + 1))
+        
+        # If no path found
+        return float('inf')
+    
     def _calculate_key_selection_metric(self, state_dict):
-        """Calculate the key selection metric (KSM) to guide key collection strategy.
-        Returns a value between -1 and 1:
-            -1: Strongly suggests collecting Key1 first
-             0: Neutral
-             1: Strongly suggests collecting Key0 first
-        """
+        """Calculate the key selection metric (KSM) to guide key collection strategy using BFS pathfinding."""
         agent_pos = state_dict['agent']
         keys = state_dict['keys']
         doors = state_dict['doors']
@@ -220,14 +268,30 @@ class DQNAgentEnhanced:
         if key_status[0] == 1 or key_status[1] == 1:
             return 0.0
         
-        # Calculate Manhattan distances
-        agent_to_key0 = self._manhattan_distance(agent_pos, keys[0])
-        agent_to_key1 = self._manhattan_distance(agent_pos, keys[1])
-        key0_to_door0 = self._manhattan_distance(keys[0], doors[0])
-        key1_to_door1 = self._manhattan_distance(keys[1], doors[1])
-        door0_to_key1 = self._manhattan_distance(doors[0], keys[1])
-        door1_to_key0 = self._manhattan_distance(doors[1], keys[0])
-        key0_to_key1 = self._manhattan_distance(keys[0], keys[1])
+        # Calculate BFS distances instead of Manhattan distances
+        agent_to_key0 = self._bfs_distance(state_dict, agent_pos, keys[0])
+        agent_to_key1 = self._bfs_distance(state_dict, agent_pos, keys[1])
+        key0_to_door0 = self._bfs_distance(state_dict, keys[0], doors[0])
+        key1_to_door1 = self._bfs_distance(state_dict, keys[1], doors[1])
+        door0_to_key1 = self._bfs_distance(state_dict, doors[0], keys[1])
+        door1_to_key0 = self._bfs_distance(state_dict, doors[1], keys[0])
+        key0_to_key1 = self._bfs_distance(state_dict, keys[0], keys[1])
+        
+        # Handle cases where no valid path exists - use Manhattan as fallback
+        if agent_to_key0 == float('inf'):
+            agent_to_key0 = self._manhattan_distance(agent_pos, keys[0]) * 1.5  # Penalize a bit
+        if agent_to_key1 == float('inf'):
+            agent_to_key1 = self._manhattan_distance(agent_pos, keys[1]) * 1.5
+        if key0_to_door0 == float('inf'):
+            key0_to_door0 = self._manhattan_distance(keys[0], doors[0]) * 1.5
+        if key1_to_door1 == float('inf'):
+            key1_to_door1 = self._manhattan_distance(keys[1], doors[1]) * 1.5
+        if door0_to_key1 == float('inf'):
+            door0_to_key1 = self._manhattan_distance(doors[0], keys[1]) * 1.5
+        if door1_to_key0 == float('inf'):
+            door1_to_key0 = self._manhattan_distance(doors[1], keys[0]) * 1.5
+        if key0_to_key1 == float('inf'):
+            key0_to_key1 = self._manhattan_distance(keys[0], keys[1]) * 1.5
         
         # Calculate costs for different collection strategies
         # Strategy 1: Key0 -> Door0 -> Key1 -> Door1
@@ -242,7 +306,7 @@ class DQNAgentEnhanced:
         # Strategy 4: Key1 -> Key0 -> Door0 -> Door1
         strategy4_cost = agent_to_key1 + key1_to_key0 + key0_to_door0 + key0_to_door1
         
-        # Determine if keys are close to each other
+        # Determine if keys are close to each other (using BFS distance)
         keys_are_close = key0_to_key1 <= 3
         
         # Determine if a key is near its door
@@ -275,6 +339,10 @@ class DQNAgentEnhanced:
         elif key1_first_cost < key0_first_cost:
             diff = key0_first_cost - key1_first_cost
             score -= min(0.5, diff / 10)  # Scale by difference but cap at 0.5
+        
+        # If one strategy is significantly better, strengthen the signal
+        if abs(key0_first_cost - key1_first_cost) > 10:
+            score *= 1.5  # Amplify the signal for clearly superior strategies
         
         # Ensure the score is in [-1, 1] range
         return np.clip(score, -1.0, 1.0)
