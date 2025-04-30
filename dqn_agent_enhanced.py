@@ -59,16 +59,22 @@ class DQNAgentEnhanced:
         self.update_every = update_every
         self.batch_size = batch_size
         self.learning_rate = learning_rate
+        self.original_lr = learning_rate  # Store original LR for adaptive scaling
         self.use_augmented_state = use_augmented_state
         
-        # For adaptive success bias
+        # For stability mechanisms
         self.current_success_rate = 0.0
+        self.best_success_rate = 0.0
+        self.best_policy_available = False
         
         # Q-Networks (policy and target)
         self.policy_net = DQN(state_size, action_size).to(device)
         self.target_net = DQN(state_size, action_size).to(device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()  # Target network in evaluation mode
+        
+        # Best policy network (for snapshots)
+        self.best_policy_net = DQN(state_size, action_size).to(device)
         
         # Optimizer
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=learning_rate)
@@ -197,6 +203,24 @@ class DQNAgentEnhanced:
         
         return state_vector
     
+    def update_success_rate(self, success_rate):
+        """Update the current success rate and manage best policy."""
+        self.current_success_rate = success_rate
+        
+        # Check if we should update our best policy
+        if success_rate > self.best_success_rate and success_rate >= 0.8:
+            self.best_success_rate = success_rate
+            self.best_policy_net.load_state_dict(self.policy_net.state_dict())
+            self.best_policy_available = True
+            print(f"New best policy saved! Success rate: {success_rate:.3f}")
+        
+        # Check if we should restore best policy
+        if self.best_policy_available and success_rate < self.best_success_rate * 0.8:
+            # If current performance drops to 80% of best performance and we have a good policy
+            if self.best_success_rate >= 0.75:  # Only restore if best policy was actually good
+                print(f"Restoring best policy. Current: {success_rate:.3f}, Best: {self.best_success_rate:.3f}")
+                self.policy_net.load_state_dict(self.best_policy_net.state_dict())
+    
     def step(self, state, action, reward, next_state, done, info=None):
         """Process a step and learn if appropriate."""
         # Check if episode was successful
@@ -223,11 +247,14 @@ class DQNAgentEnhanced:
         self.t_step = (self.t_step + 1) % self.update_every
         if self.t_step == 0 and len(self.memory) > self.batch_size:
             # Determine success bias based on current success rate
-            if self.current_success_rate >= 0.5:
-                # High success rate - focus more on successful episodes
+            # Progressive Success Bias: increase as success rate improves
+            if self.current_success_rate >= 0.9:
+                success_bias = 0.8
+            elif self.current_success_rate >= 0.7:
+                success_bias = 0.7
+            elif self.current_success_rate >= 0.5:
                 success_bias = 0.6
             else:
-                # Low success rate - default exploration balance
                 success_bias = 0.3
                 
             self.learn(success_bias=success_bias)
@@ -254,7 +281,21 @@ class DQNAgentEnhanced:
     
     def learn(self, success_bias=0.4):
         """Update value parameters using batch of experience tuples."""
-        # Sample a batch from memory with priorities and increased success_bias
+        # Apply adaptive learning rate based on success rate
+        if self.current_success_rate >= 0.8:
+            # Scale learning rate inversely with success rate
+            # At 80% success: lr = original_lr * 0.5
+            # At 90% success: lr = original_lr * 0.2
+            # At 95% success: lr = original_lr * 0.1
+            lr_scale = max(0.1, 1.0 - self.current_success_rate)
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = self.original_lr * lr_scale
+        else:
+            # Reset to original learning rate
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = self.original_lr
+        
+        # Sample a batch from memory with appropriate success bias
         (state_batch, action_batch, next_state_batch, reward_batch, done_batch), importance_weights, indices = self.memory.sample(self.batch_size, success_bias=success_bias)
         
         # Convert to appropriate tensor shapes if needed
@@ -317,6 +358,8 @@ class DQNAgentEnhanced:
             'policy_state_dict': self.policy_net.state_dict(),
             'target_state_dict': self.target_net.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
+            'best_policy_state_dict': self.best_policy_net.state_dict() if self.best_policy_available else None,
+            'best_success_rate': self.best_success_rate,
             'loss_list': self.loss_list
         }
         torch.save(checkpoint, filename)
@@ -327,4 +370,13 @@ class DQNAgentEnhanced:
         self.policy_net.load_state_dict(checkpoint['policy_state_dict'])
         self.target_net.load_state_dict(checkpoint['target_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        
+        # Load best policy if available
+        if 'best_policy_state_dict' in checkpoint and checkpoint['best_policy_state_dict'] is not None:
+            self.best_policy_net.load_state_dict(checkpoint['best_policy_state_dict'])
+            self.best_policy_available = True
+            
+        if 'best_success_rate' in checkpoint:
+            self.best_success_rate = checkpoint['best_success_rate']
+            
         self.loss_list = checkpoint['loss_list']
