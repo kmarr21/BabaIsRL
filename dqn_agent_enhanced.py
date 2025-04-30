@@ -268,51 +268,49 @@ class DQNAgentEnhanced:
         if key_status[0] == 1 or key_status[1] == 1:
             return 0.0
         
-        # Calculate BFS distances instead of Manhattan distances
+        # Calculate BFS distances between all relevant positions
         agent_to_key0 = self._bfs_distance(state_dict, agent_pos, keys[0])
         agent_to_key1 = self._bfs_distance(state_dict, agent_pos, keys[1])
         key0_to_door0 = self._bfs_distance(state_dict, keys[0], doors[0])
         key1_to_door1 = self._bfs_distance(state_dict, keys[1], doors[1])
+        key0_to_key1 = self._bfs_distance(state_dict, keys[0], keys[1])
         door0_to_key1 = self._bfs_distance(state_dict, doors[0], keys[1])
         door1_to_key0 = self._bfs_distance(state_dict, doors[1], keys[0])
-        key0_to_key1 = self._bfs_distance(state_dict, keys[0], keys[1])
-        
-        # Also calculate door-to-door paths needed for the strategies
         key0_to_door1 = self._bfs_distance(state_dict, keys[0], doors[1])
         key1_to_door0 = self._bfs_distance(state_dict, keys[1], doors[0])
         
         # Handle cases where no valid path exists - use Manhattan as fallback
         if agent_to_key0 == float('inf'):
-            agent_to_key0 = self._manhattan_distance(agent_pos, keys[0]) * 1.5  # Penalize a bit
+            agent_to_key0 = self._manhattan_distance(agent_pos, keys[0]) * 1.5
         if agent_to_key1 == float('inf'):
             agent_to_key1 = self._manhattan_distance(agent_pos, keys[1]) * 1.5
         if key0_to_door0 == float('inf'):
             key0_to_door0 = self._manhattan_distance(keys[0], doors[0]) * 1.5
         if key1_to_door1 == float('inf'):
             key1_to_door1 = self._manhattan_distance(keys[1], doors[1]) * 1.5
+        if key0_to_key1 == float('inf'):
+            key0_to_key1 = self._manhattan_distance(keys[0], keys[1]) * 1.5
         if door0_to_key1 == float('inf'):
             door0_to_key1 = self._manhattan_distance(doors[0], keys[1]) * 1.5
         if door1_to_key0 == float('inf'):
             door1_to_key0 = self._manhattan_distance(doors[1], keys[0]) * 1.5
-        if key0_to_key1 == float('inf'):
-            key0_to_key1 = self._manhattan_distance(keys[0], keys[1]) * 1.5
         if key0_to_door1 == float('inf'):
             key0_to_door1 = self._manhattan_distance(keys[0], doors[1]) * 1.5
         if key1_to_door0 == float('inf'):
             key1_to_door0 = self._manhattan_distance(keys[1], doors[0]) * 1.5
         
         # Calculate costs for different collection strategies
-        # Strategy 1: Key0 -> Door0 -> Key1 -> Door1
+        # Strategy 1: Key0 → Door0 → Key1 → Door1
         strategy1_cost = agent_to_key0 + key0_to_door0 + door0_to_key1 + key1_to_door1
         
-        # Strategy 2: Key1 -> Door1 -> Key0 -> Door0
+        # Strategy 2: Key1 → Door1 → Key0 → Door0
         strategy2_cost = agent_to_key1 + key1_to_door1 + door1_to_key0 + key0_to_door0
         
-        # Strategy 3: Key0 -> Key1 -> Door1 -> Door0
+        # Strategy 3: Key0 → Key1 → Door1 → Door0
         strategy3_cost = agent_to_key0 + key0_to_key1 + key1_to_door1 + key1_to_door0
         
-        # Strategy 4: Key1 -> Key0 -> Door0 -> Door1
-        strategy4_cost = agent_to_key1 + key1_to_key0 + key0_to_door0 + key0_to_door1
+        # Strategy 4: Key1 → Key0 → Door0 → Door1
+        strategy4_cost = agent_to_key1 + key0_to_key1 + key0_to_door0 + key0_to_door1
         
         # Determine if keys are close to each other (using BFS distance)
         keys_are_close = key0_to_key1 <= 3
