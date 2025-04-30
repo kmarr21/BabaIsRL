@@ -20,7 +20,7 @@ from dqn_agent_enhanced import DQNAgentEnhanced
 
 def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, eps_start=1.0, eps_end=0.005, eps_decay=0.998, 
                        render=False, checkpoint_dir='enhanced_results', eval_freq=100, eval_episodes=10,
-                       use_augmented_state=True, use_reward_shaping=True, use_enemy_prediction=True):  # Add enemy prediction flag
+                       use_augmented_state=True, use_reward_shaping=True):
     """Train DQN agent on Enhanced LIFO Corridors environment.
     
     Args:
@@ -36,13 +36,11 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
         eval_episodes (int): number of episodes to run during evaluation
         use_augmented_state (bool): whether to use augmented state representation
         use_reward_shaping (bool): whether to use reward shaping
-        use_enemy_prediction (bool): whether to use enemy movement prediction features
     """
     # Create directory for results
     augmented_str = "augmented" if use_augmented_state else "basic"
     shaping_str = "shaped" if use_reward_shaping else "raw"
-    prediction_str = "predicted" if use_enemy_prediction else "simple"
-    output_dir = f"{checkpoint_dir}_{template_name}_{augmented_str}_{shaping_str}_{prediction_str}"
+    output_dir = f"{checkpoint_dir}_{template_name}_{augmented_str}_{shaping_str}"
     os.makedirs(output_dir, exist_ok=True)
     
     # Log file for detailed statistics
@@ -55,20 +53,17 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
     # Get state and action sizes
     state, _ = env.reset()
     # Create a temporary agent to get the preprocessed state size
-    temp_agent = DQNAgentEnhanced(0, 0, use_augmented_state=use_augmented_state, 
-                                 use_enemy_prediction=use_enemy_prediction)
+    temp_agent = DQNAgentEnhanced(0, 0, use_augmented_state=use_augmented_state)
     state_size = len(temp_agent.preprocess_state(state))
     action_size = env.action_space.n
     
     print(f"Template: {template_name}, State size: {state_size}, Action size: {action_size}")
     print(f"State representation: {augmented_str}")
     print(f"Reward shaping: {shaping_str}")
-    print(f"Enemy prediction: {prediction_str}")
     
     # Create agent
     agent = DQNAgentEnhanced(state_size=state_size, action_size=action_size, 
-                            seed=0, use_augmented_state=use_augmented_state,
-                            use_enemy_prediction=use_enemy_prediction)
+                            seed=0, use_augmented_state=use_augmented_state)
     
     # Initialize epsilon
     eps = eps_start
@@ -165,6 +160,15 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
         success_history.append(1 if success else 0)
         wrong_key_attempts.append(wrong_key_count)
         
+        # Calculate success rate and update agent's knowledge of it
+        if len(success_history) >= 100:
+            success_rate = sum(success_history[-100:]) / 100
+        else:
+            success_rate = sum(success_history) / len(success_history)
+        
+        agent.current_success_rate = success_rate
+        success_rate_history.append(success_rate)
+        
         # Log data for this episode
         log_data['episode'].append(i_episode)
         log_data['steps'].append(steps)
@@ -182,14 +186,6 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
         # Check if episode was a win
         if success:
             win_episodes.append(i_episode)
-        
-        # Calculate success rate over a window
-        if len(success_history) >= 100:
-            success_rate = sum(success_history[-100:]) / 100
-            success_rate_history.append(success_rate)
-        else:
-            success_rate = sum(success_history) / len(success_history)
-            success_rate_history.append(success_rate)
         
         # Update progress bar
         pbar.update(1)
@@ -459,7 +455,6 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
     parser.add_argument('--basic-state', action='store_true', help='Use basic state representation (no augmentation)')
     parser.add_argument('--no-reward-shaping', action='store_true', help='Disable reward shaping')
-    parser.add_argument('--no-enemy-prediction', action='store_true', help='Disable enemy movement prediction features')
     
     args = parser.parse_args()
     
@@ -473,11 +468,9 @@ if __name__ == "__main__":
     print(f"Training for {args.episodes} episodes")
     print(f"State representation: {'Basic' if args.basic_state else 'Augmented'}")
     print(f"Reward shaping: {'OFF' if args.no_reward_shaping else 'ON'}")
-    print(f"Enemy prediction: {'OFF' if args.no_enemy_prediction else 'ON'}")
     print(f"Results will be saved to: {args.output}_{args.template}_"
           f"{'basic' if args.basic_state else 'augmented'}_"
-          f"{'raw' if args.no_reward_shaping else 'shaped'}_"
-          f"{'simple' if args.no_enemy_prediction else 'predicted'}")
+          f"{'raw' if args.no_reward_shaping else 'shaped'}")
     
     scores, win_episodes, success_rates, wrong_key_attempts = train_enhanced_dqn(
         template_name=args.template,
@@ -486,6 +479,5 @@ if __name__ == "__main__":
         checkpoint_dir=args.output,
         eval_freq=args.eval_freq,
         use_augmented_state=not args.basic_state,  # Toggle based on command-line arg
-        use_reward_shaping=not args.no_reward_shaping,  # Toggle based on command-line arg
-        use_enemy_prediction=not args.no_enemy_prediction  # Toggle based on command-line arg
+        use_reward_shaping=not args.no_reward_shaping  # Toggle based on command-line arg
     )
