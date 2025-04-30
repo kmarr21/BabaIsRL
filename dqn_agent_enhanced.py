@@ -277,6 +277,10 @@ class DQNAgentEnhanced:
         door1_to_key0 = self._bfs_distance(state_dict, doors[1], keys[0])
         key0_to_key1 = self._bfs_distance(state_dict, keys[0], keys[1])
         
+        # Also calculate door-to-door paths needed for the strategies
+        key0_to_door1 = self._bfs_distance(state_dict, keys[0], doors[1])
+        key1_to_door0 = self._bfs_distance(state_dict, keys[1], doors[0])
+        
         # Handle cases where no valid path exists - use Manhattan as fallback
         if agent_to_key0 == float('inf'):
             agent_to_key0 = self._manhattan_distance(agent_pos, keys[0]) * 1.5  # Penalize a bit
@@ -292,6 +296,10 @@ class DQNAgentEnhanced:
             door1_to_key0 = self._manhattan_distance(doors[1], keys[0]) * 1.5
         if key0_to_key1 == float('inf'):
             key0_to_key1 = self._manhattan_distance(keys[0], keys[1]) * 1.5
+        if key0_to_door1 == float('inf'):
+            key0_to_door1 = self._manhattan_distance(keys[0], doors[1]) * 1.5
+        if key1_to_door0 == float('inf'):
+            key1_to_door0 = self._manhattan_distance(keys[1], doors[0]) * 1.5
         
         # Calculate costs for different collection strategies
         # Strategy 1: Key0 -> Door0 -> Key1 -> Door1
