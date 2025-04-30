@@ -48,7 +48,7 @@ class DQNAgentEnhanced:
     def __init__(self, state_size, action_size, seed=0, 
                  learning_rate=0.0003, gamma=0.99, tau=0.0005,
                  buffer_size=100000, batch_size=128, update_every=8,
-                 use_augmented_state=True):
+                 use_augmented_state=True, use_key_selection_metric=False):
         """Initialize agent parameters."""
         
         self.state_size = state_size
@@ -60,6 +60,7 @@ class DQNAgentEnhanced:
         self.batch_size = batch_size
         self.learning_rate = learning_rate
         self.use_augmented_state = use_augmented_state
+        self.use_key_selection_metric = use_key_selection_metric  # New flag for KSM
         
         # For adaptive success bias
         self.current_success_rate = 0.0
@@ -88,7 +89,12 @@ class DQNAgentEnhanced:
     def preprocess_state(self, state_dict):
         """Choose appropriate state preprocessing based on flag."""
         if self.use_augmented_state:
-            return self.preprocess_state_augmented(state_dict)
+            state_vector = self.preprocess_state_augmented(state_dict)
+            if self.use_key_selection_metric:
+                # Add KSM feature if enabled
+                ksm = self._calculate_key_selection_metric(state_dict)
+                state_vector = np.append(state_vector, ksm)
+            return state_vector
         else:
             return self.preprocess_state_basic(state_dict)
 
@@ -196,6 +202,90 @@ class DQNAgentEnhanced:
         ])
         
         return state_vector
+    
+    def _calculate_key_selection_metric(self, state_dict):
+        """Calculate the key selection metric (KSM) to guide key collection strategy.
+        Returns a value between -1 and 1:
+            -1: Strongly suggests collecting Key1 first
+             0: Neutral
+             1: Strongly suggests collecting Key0 first
+        """
+        agent_pos = state_dict['agent']
+        keys = state_dict['keys']
+        doors = state_dict['doors']
+        key_status = state_dict['key_status']
+        door_status = state_dict['door_status']
+        
+        # If one or both keys already collected, no need for selection strategy
+        if key_status[0] == 1 or key_status[1] == 1:
+            return 0.0
+        
+        # Calculate Manhattan distances
+        agent_to_key0 = self._manhattan_distance(agent_pos, keys[0])
+        agent_to_key1 = self._manhattan_distance(agent_pos, keys[1])
+        key0_to_door0 = self._manhattan_distance(keys[0], doors[0])
+        key1_to_door1 = self._manhattan_distance(keys[1], doors[1])
+        door0_to_key1 = self._manhattan_distance(doors[0], keys[1])
+        door1_to_key0 = self._manhattan_distance(doors[1], keys[0])
+        key0_to_key1 = self._manhattan_distance(keys[0], keys[1])
+        
+        # Calculate costs for different collection strategies
+        # Strategy 1: Key0 -> Door0 -> Key1 -> Door1
+        strategy1_cost = agent_to_key0 + key0_to_door0 + door0_to_key1 + key1_to_door1
+        
+        # Strategy 2: Key1 -> Door1 -> Key0 -> Door0
+        strategy2_cost = agent_to_key1 + key1_to_door1 + door1_to_key0 + key0_to_door0
+        
+        # Strategy 3: Key0 -> Key1 -> Door1 -> Door0
+        strategy3_cost = agent_to_key0 + key0_to_key1 + key1_to_door1 + key1_to_door0
+        
+        # Strategy 4: Key1 -> Key0 -> Door0 -> Door1
+        strategy4_cost = agent_to_key1 + key1_to_key0 + key0_to_door0 + key0_to_door1
+        
+        # Determine if keys are close to each other
+        keys_are_close = key0_to_key1 <= 3
+        
+        # Determine if a key is near its door
+        key0_near_door0 = key0_to_door0 <= 3
+        key1_near_door1 = key1_to_door1 <= 3
+        
+        # Base score on which key to collect first (positive for Key0, negative for Key1)
+        score = 0.0
+        
+        # If keys are close to each other, use LIFO strategic thinking
+        if keys_are_close:
+            # Determine which door is closer to its key
+            if key0_to_door0 < key1_to_door1:
+                # Door0 is closer to Key0 than Door1 is to Key1
+                # With LIFO constraint, collect Key0 LAST (so Key1 first)
+                score -= 0.7
+            elif key1_to_door1 < key0_to_door0:
+                # Door1 is closer to Key1 than Door0 is to Key0
+                # With LIFO constraint, collect Key1 LAST (so Key0 first)
+                score += 0.7
+        
+        # Consider overall strategy costs
+        key0_first_cost = min(strategy1_cost, strategy3_cost)
+        key1_first_cost = min(strategy2_cost, strategy4_cost)
+        
+        # Adjust score based on strategy costs
+        if key0_first_cost < key1_first_cost:
+            diff = key1_first_cost - key0_first_cost
+            score += min(0.5, diff / 10)  # Scale by difference but cap at 0.5
+        elif key1_first_cost < key0_first_cost:
+            diff = key0_first_cost - key1_first_cost
+            score -= min(0.5, diff / 10)  # Scale by difference but cap at 0.5
+        
+        # Ensure the score is in [-1, 1] range
+        return np.clip(score, -1.0, 1.0)
+    
+    def _manhattan_distance(self, pos1, pos2):
+        """Calculate Manhattan distance between two positions."""
+        if isinstance(pos1, np.ndarray) and isinstance(pos2, np.ndarray):
+            return np.sum(np.abs(pos1 - pos2))
+        else:
+            # Handle when positions are lists or other iterables
+            return sum(abs(a - b) for a, b in zip(pos1, pos2))
     
     def step(self, state, action, reward, next_state, done, info=None):
         """Process a step and learn if appropriate."""
