@@ -365,25 +365,6 @@ class DQNAgentEnhanced:
         
         return False
     
-    def _explore_compartment(self, start_pos, walls, visited, grid_size):
-        """Explore a compartment using BFS and mark visited positions."""
-        queue = deque([start_pos])
-        visited.add(start_pos)
-        
-        moves = [(0, 1), (1, 0), (0, -1), (-1, 0)]
-        
-        while queue:
-            x, y = queue.popleft()
-            
-            for dx, dy in moves:
-                new_pos = (x + dx, y + dy)
-                
-                if (0 <= new_pos[0] < grid_size and 0 <= new_pos[1] < grid_size and
-                    new_pos not in visited and new_pos not in walls):
-                    
-                    visited.add(new_pos)
-                    queue.append(new_pos)
-    
     def _find_enemy_patrol_path(self, state_dict, enemy_pos, enemy_type):
         """Find the patrol path of an enemy based on its position and type."""
         walls = []
@@ -459,53 +440,70 @@ class DQNAgentEnhanced:
         walls = []
         for wall in state_dict['walls']:
             if wall[0] >= 0:  # Filter out -1 placeholders
-                walls.append((wall[0], wall[1]))
+                walls.append(tuple(wall))
         
         grid_size = 6
-        
-        # Extract key components
+        agent_pos = state_dict['agent']
         keys = state_dict['keys']
         doors = state_dict['doors']
         enemy_positions = state_dict['enemies']
-        enemy_types = state_dict.get('enemy_types', [0])  # Default to horizontal if not provided
+        enemy_types = state_dict.get('enemy_types', [0])  # Default to horizontal
         
-        # 1. Wall constraint (physical obstacles)
+        # 1. Wall density - basic physical constraint
         wall_constraint = len(walls) / (grid_size * grid_size)
         
-        # 2. Path constraint analysis
-        # Calculate all key-door path ratios (actual/direct)
-        path_ratios = []
+        # 2. Path constraint analysis - improved to focus on detours
+        path_constraint = 0.0  # Start with zero
+        total_paths_weight = 0.0
         
-        # Key-to-door paths
+        # Check each key-door path
         for i in range(2):
             for j in range(2):
                 manhattan = self._manhattan_distance(keys[i], doors[j])
                 bfs = self._bfs_distance(state_dict, keys[i], doors[j])
                 
-                if bfs != float('inf') and manhattan > 0:
-                    ratio = bfs / manhattan
-                    path_ratios.append(ratio)
+                if bfs != float('inf'):
+                    # Calculate detour factor - how much longer is the real path?
+                    if manhattan > 0:
+                        # The detour ratio is more meaningful than just path ratio
+                        detour = (bfs - manhattan) / manhattan
+                        # Higher weight for key-matching-door paths
+                        weight = 2.0 if i == j else 1.0
+                        path_constraint += min(1.0, detour) * weight
+                        total_paths_weight += weight
+                else:
+                    # If there's no path, that's a severe constraint
+                    weight = 2.0 if i == j else 1.0
+                    path_constraint += 1.0 * weight
+                    total_paths_weight += weight
         
-        # Key-to-key path
+        # Key-to-key path (important for sequential collection)
         manhattan = self._manhattan_distance(keys[0], keys[1])
         bfs = self._bfs_distance(state_dict, keys[0], keys[1])
-        if bfs != float('inf') and manhattan > 0:
-            ratio = bfs / manhattan
-            path_ratios.append(ratio)
-        
-        # Calculate average ratio (higher means more detours)
-        if path_ratios:
-            avg_ratio = sum(path_ratios) / len(path_ratios)
-            # Normalize to [0, 1] (assuming max ratio around 3)
-            path_constraint = min(1.0, (avg_ratio - 1.0) / 2.0)
+        if bfs != float('inf'):
+            if manhattan > 0:
+                detour = (bfs - manhattan) / manhattan
+                path_constraint += min(1.0, detour) * 2.0  # High weight for key-key path
+                total_paths_weight += 2.0
         else:
-            path_constraint = 0.5  # Default if no valid paths
+            path_constraint += 1.0 * 2.0
+            total_paths_weight += 2.0
         
-        # 3. LIFO constraint analysis
-        # Get key-door distances
+        # Normalize based on total weights
+        if total_paths_weight > 0:
+            path_constraint /= total_paths_weight
+        
+        # 3. LIFO constraint analysis - directly use key strategy costs
+        # Calculate distances
         key0_door0 = self._bfs_distance(state_dict, keys[0], doors[0])
         key1_door1 = self._bfs_distance(state_dict, keys[1], doors[1])
         key0_key1 = self._bfs_distance(state_dict, keys[0], keys[1])
+        door0_to_key1 = self._bfs_distance(state_dict, doors[0], keys[1])
+        door1_to_key0 = self._bfs_distance(state_dict, doors[1], keys[0])
+        key0_door1 = self._bfs_distance(state_dict, keys[0], doors[1])
+        key1_door0 = self._bfs_distance(state_dict, keys[1], doors[0])
+        agent_to_key0 = self._bfs_distance(state_dict, agent_pos, keys[0])
+        agent_to_key1 = self._bfs_distance(state_dict, agent_pos, keys[1])
         
         # Handle infinite distances
         if key0_door0 == float('inf'):
@@ -514,32 +512,41 @@ class DQNAgentEnhanced:
             key1_door1 = self._manhattan_distance(keys[1], doors[1]) * 1.5
         if key0_key1 == float('inf'):
             key0_key1 = self._manhattan_distance(keys[0], keys[1]) * 1.5
+        if door0_to_key1 == float('inf'):
+            door0_to_key1 = self._manhattan_distance(doors[0], keys[1]) * 1.5
+        if door1_to_key0 == float('inf'):
+            door1_to_key0 = self._manhattan_distance(doors[1], keys[0]) * 1.5
+        if key0_door1 == float('inf'):
+            key0_door1 = self._manhattan_distance(keys[0], doors[1]) * 1.5
+        if key1_door0 == float('inf'):
+            key1_door0 = self._manhattan_distance(keys[1], doors[0]) * 1.5
+        if agent_to_key0 == float('inf'):
+            agent_to_key0 = self._manhattan_distance(agent_pos, keys[0]) * 1.5
+        if agent_to_key1 == float('inf'):
+            agent_to_key1 = self._manhattan_distance(agent_pos, keys[1]) * 1.5
         
-        # LIFO significance increases when:
-        # 1. Keys are close to each other (makes order important)
-        key_proximity = 1.0 - min(1.0, key0_key1 / 10.0)
+        # Calculate the same strategy costs we use in KSM
+        strategy1_cost = agent_to_key0 + key0_door0 + door0_to_key1 + key1_door1  # Key0 first
+        strategy2_cost = agent_to_key1 + key1_door1 + door1_to_key0 + key0_door0  # Key1 first
         
-        # 2. One key is much closer to its door than the other
+        # Calculate how much difference the key selection makes - critical factor!
+        if min(strategy1_cost, strategy2_cost) > 0:
+            strategy_diff = abs(strategy1_cost - strategy2_cost) / min(strategy1_cost, strategy2_cost)
+            # Cap at a reasonable value
+            strategy_importance = min(1.0, strategy_diff)
+        else:
+            strategy_importance = 0.5  # Default if costs couldn't be calculated
+        
+        # Key proximity (close keys = order matters more)
+        key_proximity = 1.0 - min(1.0, key0_key1 / 8.0)
+        
+        # Door-key proximity difference (asymmetric distances increase importance)
         door_diff = abs(key0_door0 - key1_door1) / max(1.0, max(key0_door0, key1_door1))
         
-        # 3. Strategic thinking requirement
-        if min(key0_door0, key1_door1) < 3:
-            # If a key is very close to its door, LIFO planning is critical
-            strategic_factor = 0.8
-        elif key_proximity > 0.7 and door_diff > 0.3:
-            # If keys are close but doors are differently positioned
-            strategic_factor = 0.7
-        elif key_proximity < 0.3 and min(key0_door0, key1_door1) < 5:
-            # If keys are far but at least one door is relatively close
-            strategic_factor = 0.6
-        else:
-            strategic_factor = 0.4
+        # Combined LIFO constraint - highest weight on strategy importance
+        lifo_constraint = (0.3 * key_proximity + 0.2 * door_diff + 0.5 * strategy_importance)
         
-        # Combined LIFO constraint
-        lifo_constraint = (0.5 * key_proximity + 0.3 * door_diff + 0.2 * strategic_factor)
-        
-        # 4. Enemy constraint analysis
-        # Identify critical paths (key-door, key-key)
+        # 4. Enemy constraint analysis - focus on critical path blockage
         critical_paths = self._analyze_critical_paths(state_dict)
         
         # Find enemy patrol paths
@@ -565,12 +572,13 @@ class DQNAgentEnhanced:
         # Calculate blockage ratio and normalize
         enemy_constraint = 0.2 + (0.8 * min(1.0, blocked_paths / total_paths))
         
-        # 5. Combined KSM factor
+        # 5. Combined KSM factor - weighted average of all constraints
+        # More weight on LIFO and path constraints which are the core challenges
         ksm_factor = (
-            0.3 * path_constraint +    # Path planning complexity
-            0.3 * lifo_constraint +    # LIFO strategy importance
-            0.3 * enemy_constraint +   # Enemy avoidance difficulty
-            0.1 * wall_constraint      # Physical constraints
+            0.35 * path_constraint +    # Path planning complexity
+            0.35 * lifo_constraint +    # LIFO strategy importance
+            0.2 * enemy_constraint +    # Enemy avoidance difficulty
+            0.1 * wall_constraint       # Physical constraints
         )
         
         # Print analysis for debugging
@@ -580,6 +588,7 @@ class DQNAgentEnhanced:
         print(f"  Path constraint: {path_constraint:.2f}")
         print(f"  LIFO constraint: {lifo_constraint:.2f}")
         print(f"  Enemy constraint: {enemy_constraint:.2f}")
+        print(f"  Strategy importance: {strategy_importance:.2f}")
         print(f"  Final KSM factor: {ksm_factor:.2f}")
         
         return ksm_factor
