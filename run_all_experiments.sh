@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Set up experiments to run
-TEMPLATES=("sparse_med" "zipper_med" "bottleneck_hard")
-EPISODES=2000
+TEMPLATES=("basic_med" "sparse_med" "zipper_med" "bottleneck_med" "bottleneck_hard" "corridors_med")
+EPISODES=5000
 SEEDS=5
 
 # Create log directory
@@ -13,7 +13,7 @@ run_experiment() {
     EXPERIMENT=$1
     TEMPLATE=$2
     
-    echo "Starting $EXPERIMENT on $TEMPLATE..."
+    echo "Starting $EXPERIMENT on $TEMPLATE with $EPISODES episodes and $SEEDS seeds..."
     
     # Run command with caffeinate and log output
     caffeinate -i python run_experiment.py \
