@@ -19,8 +19,8 @@ def calculate_ksm_for_all_templates():
     ]
     
     print("\n===== KSM Factor Analysis for All Templates =====\n")
-    print(f"{'Template':<15} {'Walls':<8} {'Path':<8} {'Strategy':<10} {'LIFO':<8} {'Raw KSM':<8} {'Final KSM':<10} {'Key0 Viable':<12} {'Key1 Viable':<12}")
-    print("-" * 105)
+    print(f"{'Template':<15} {'Walls':<8} {'Path':<8} {'Strategy':<10} {'LIFO':<8} {'KSM':<8} {'Key0 Viable':<12} {'Key1 Viable':<12}")
+    print("-" * 90)
     
     results = {}
     
@@ -56,7 +56,9 @@ def calculate_ksm_for_all_templates():
         key1_viable = False
         strategy1_cost = 0.0
         strategy2_cost = 0.0
-        raw_ksm = 0.0
+        wall_density = 0.0
+        detour_ratio = 0.0
+        kdk_complexity = 0.0
         
         for line in output_lines:
             if ":" in line:
@@ -84,6 +86,21 @@ def calculate_ksm_for_all_templates():
                             strategy2_cost = float(value)
                         except:
                             strategy2_cost = 0.0
+                    elif "wall density" in key:
+                        try:
+                            wall_density = float(value)
+                        except:
+                            wall_density = 0.0
+                    elif "detour ratio" in key:
+                        try:
+                            detour_ratio = float(value)
+                        except:
+                            detour_ratio = 0.0
+                    elif "k-d-k complexity" in key:
+                        try:
+                            kdk_complexity = float(value)
+                        except:
+                            kdk_complexity = 0.0
                     elif "path complexity" in key:
                         try:
                             constraints["path"] = float(value)
@@ -99,12 +116,7 @@ def calculate_ksm_for_all_templates():
                             constraints["lifo"] = float(value)
                         except:
                             constraints["lifo"] = 0.0
-                    elif "raw ksm factor" in key:
-                        try:
-                            raw_ksm = float(value)
-                        except:
-                            raw_ksm = 0.0
-                    elif "final ksm factor" in key:
+                    elif "ksm factor" in key:
                         try:
                             constraints["ksm"] = float(value)
                         except:
@@ -113,10 +125,12 @@ def calculate_ksm_for_all_templates():
         # Store results
         results[template_name] = {
             "walls": wall_count,
+            "wall_density": wall_density,
+            "detour_ratio": detour_ratio,
+            "kdk_complexity": kdk_complexity,
             "path": constraints.get("path", 0.0),
             "strategy": constraints.get("strategy", 0.0),
             "lifo": constraints.get("lifo", 0.0),
-            "raw_ksm": raw_ksm,
             "ksm": constraints.get("ksm", 0.0),
             "key0_viable": key0_viable,
             "key1_viable": key1_viable,
@@ -125,7 +139,7 @@ def calculate_ksm_for_all_templates():
         }
         
         # Display in table format
-        print(f"{template_name:<15} {wall_count:<8d} {constraints.get('path', 0.0):<8.2f} {constraints.get('strategy', 0.0):<10.2f} {constraints.get('lifo', 0.0):<8.2f} {raw_ksm:<8.2f} {constraints.get('ksm', 0.0):<10.2f} {str(key0_viable):<12} {str(key1_viable):<12}")
+        print(f"{template_name:<15} {wall_count:<8d} {constraints.get('path', 0.0):<8.2f} {constraints.get('strategy', 0.0):<10.2f} {constraints.get('lifo', 0.0):<8.2f} {constraints.get('ksm', 0.0):<8.2f} {str(key0_viable):<12} {str(key1_viable):<12}")
         
         # Close the environment
         env.close()
@@ -148,6 +162,10 @@ def calculate_ksm_for_all_templates():
             key=lambda x: x[1]
         )
         print(f"{template:<15} - {max_constraint[0]} constraint: {max_constraint[1]:.2f}")
+    
+    print("\nDetailed Path Analysis:")
+    for template, values in results.items():
+        print(f"{template:<15} - Wall density: {values['wall_density']:.2f}, Detour ratio: {values['detour_ratio']:.2f}, KDK: {values['kdk_complexity']:.2f}")
     
     print("\nStrategy Viability Analysis:")
     for template, values in results.items():
@@ -182,4 +200,4 @@ if __name__ == "__main__":
     print("1. Templates with high KSM factors should have meaningful strategic choices")
     print("2. Templates with forced path order (like bottleneck_med) should show only one viable strategy")
     print("3. Templates with both keys accessible (like bottleneck_hard) should show both strategies as viable")
-    print("4. Templates with complex paths (like zipper_med) should have higher KSM values due to increased path weight")
+    print("4. Templates with complex paths (like zipper_med) should have higher path complexity")
