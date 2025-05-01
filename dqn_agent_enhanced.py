@@ -89,6 +89,11 @@ class DQNAgentEnhanced:
         # Success tracking
         self.current_episode_success = False
     
+    def set_template_context(self, template_name):
+        """Set the current template context (used for logging only)."""
+        # We don't use template name for calculations, only for logging
+        self.template_name = template_name
+    
     def preprocess_state(self, state_dict):
         """Choose appropriate state preprocessing based on flag."""
         if self.use_augmented_state:
@@ -264,6 +269,55 @@ class DQNAgentEnhanced:
         # If no path found
         return float('inf')
     
+    def _simplified_path(self, state_dict, start_pos, target_pos):
+        """Return a simplified path between positions for analysis purposes."""
+        # Extract walls
+        walls = []
+        for wall in state_dict['walls']:
+            if wall[0] >= 0:  # Filter out -1 placeholders
+                walls.append((wall[0], wall[1]))
+        
+        grid_size = 6
+        
+        # Check if positions are valid
+        if not (0 <= start_pos[0] < grid_size and 0 <= start_pos[1] < grid_size and
+                0 <= target_pos[0] < grid_size and 0 <= target_pos[1] < grid_size):
+            return []  # Invalid position
+        
+        # If start and target are the same
+        if np.array_equal(start_pos, target_pos):
+            return [tuple(start_pos)]
+        
+        # Convert positions to tuples
+        start = tuple(start_pos)
+        target = tuple(target_pos)
+        
+        # BFS queue and path tracking
+        queue = deque([(start, [start])])
+        visited = {start}
+        
+        # Possible movements: up, right, down, left
+        moves = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+        
+        while queue:
+            pos, path = queue.popleft()
+            
+            for dx, dy in moves:
+                new_pos = (pos[0] + dx, pos[1] + dy)
+                
+                if (0 <= new_pos[0] < grid_size and 0 <= new_pos[1] < grid_size and
+                    new_pos not in visited and new_pos not in walls):
+                    
+                    new_path = path + [new_pos]
+                    
+                    if new_pos == target:
+                        return new_path
+                    
+                    visited.add(new_pos)
+                    queue.append((new_pos, new_path))
+        
+        return []  # No path found
+    
     def _bfs_path_exists(self, state_dict, start_pos, target_pos):
         """Check if a path exists between two positions using BFS."""
         # Extract walls
@@ -330,8 +384,77 @@ class DQNAgentEnhanced:
                     visited.add(new_pos)
                     queue.append(new_pos)
     
+    def _find_enemy_patrol_path(self, state_dict, enemy_pos, enemy_type):
+        """Find the patrol path of an enemy based on its position and type."""
+        walls = []
+        for wall in state_dict['walls']:
+            if wall[0] >= 0:  # Filter out -1 placeholders
+                walls.append(tuple(wall))
+        
+        grid_size = 6
+        patrol_path = []
+        
+        if enemy_type == 0:  # Horizontal movement
+            row = enemy_pos[1]
+            # Find leftmost and rightmost positions in this row
+            left_bound, right_bound = 0, grid_size - 1
+            
+            # Check for walls that limit horizontal movement
+            for wall_pos in walls:
+                if wall_pos[1] == row:  # Wall in same row
+                    if wall_pos[0] < enemy_pos[0] and wall_pos[0] + 1 > left_bound:
+                        left_bound = wall_pos[0] + 1
+                    if wall_pos[0] > enemy_pos[0] and wall_pos[0] - 1 < right_bound:
+                        right_bound = wall_pos[0] - 1
+            
+            # Create patrol path
+            for x in range(left_bound, right_bound + 1):
+                patrol_path.append((x, row))
+                
+        else:  # Vertical movement
+            col = enemy_pos[0]
+            # Find bottom and top positions in this column
+            bottom_bound, top_bound = 0, grid_size - 1
+            
+            # Check for walls that limit vertical movement
+            for wall_pos in walls:
+                if wall_pos[0] == col:  # Wall in same column
+                    if wall_pos[1] < enemy_pos[1] and wall_pos[1] + 1 > bottom_bound:
+                        bottom_bound = wall_pos[1] + 1
+                    if wall_pos[1] > enemy_pos[1] and wall_pos[1] - 1 < top_bound:
+                        top_bound = wall_pos[1] - 1
+            
+            # Create patrol path
+            for y in range(bottom_bound, top_bound + 1):
+                patrol_path.append((col, y))
+                
+        return patrol_path
+    
+    def _analyze_critical_paths(self, state_dict):
+        """Identify and analyze critical paths in the environment."""
+        # Extract key components
+        keys = state_dict['keys']
+        doors = state_dict['doors']
+        
+        # Store all paths between keys and doors
+        critical_paths = []
+        
+        # Find paths between all keys and doors
+        for i in range(2):  # Each key
+            for j in range(2):  # Each door
+                path = self._simplified_path(state_dict, keys[i], doors[j])
+                if path:  # If path exists
+                    critical_paths.append(path)
+        
+        # Find path between keys
+        key_path = self._simplified_path(state_dict, keys[0], keys[1])
+        if key_path:
+            critical_paths.append(key_path)
+            
+        return critical_paths
+    
     def calculate_environment_ksm_factor(self, state_dict):
-        """Calculate a static KSM factor based on environment analysis."""
+        """Calculate a static KSM factor based on thorough environment analysis."""
         # Extract walls and grid features
         walls = []
         for wall in state_dict['walls']:
@@ -340,32 +463,105 @@ class DQNAgentEnhanced:
         
         grid_size = 6
         
-        # 1. Analyze path constraints
-        # Calculate number of valid paths between keys and doors using BFS
+        # Extract key components
         agent_pos = state_dict['agent']
         keys = state_dict['keys']
         doors = state_dict['doors']
+        enemy_positions = state_dict['enemies']
+        enemy_directions = state_dict['enemy_directions']
+        enemy_types = state_dict.get('enemy_types', [0])  # Default to horizontal if not provided
         
-        # Count paths between important locations
-        paths_count = 0
-        total_paths_attempted = 0
+        # 1. Path efficiency analysis - calculate optimal vs. actual paths
+        key_door_path_lengths = []
+        key_door_optimal_lengths = []
         
-        # Check paths between all key/door combinations
         for i in range(2):  # For each key
             for j in range(2):  # For each door
-                path_exists = self._bfs_path_exists(state_dict, keys[i], doors[j])
-                if path_exists:
-                    paths_count += 1
-                total_paths_attempted += 1
+                # Calculate BFS (accounting for walls)
+                path_length = self._bfs_distance(state_dict, keys[i], doors[j])
+                
+                # Calculate Manhattan (optimal without walls)
+                optimal_length = self._manhattan_distance(keys[i], doors[j])
+                
+                if path_length != float('inf'):
+                    key_door_path_lengths.append(path_length)
+                    key_door_optimal_lengths.append(optimal_length)
         
-        # Check paths between keys
-        path_exists = self._bfs_path_exists(state_dict, keys[0], keys[1])
-        if path_exists:
-            paths_count += 1
-        total_paths_attempted += 1
+        # Path efficiency ratio (higher = more constraints)
+        if key_door_path_lengths and key_door_optimal_lengths:
+            path_efficiency = sum(key_door_path_lengths) / sum(key_door_optimal_lengths)
+            # Cap at reasonable value (walls create detours)
+            path_efficiency = min(3.0, path_efficiency)
+            # Normalize to [0, 1]
+            path_constraint_factor = (path_efficiency - 1.0) / 2.0
+        else:
+            path_constraint_factor = 0.5  # Default if no valid paths
         
-        # 2. Analyze spatial constraints
-        # Calculate compartmentalization - how many separate areas exist
+        # 2. LIFO constraint significance
+        # Calculate direct path between each key and its matching door
+        key0_door0_dist = self._bfs_distance(state_dict, keys[0], doors[0])
+        key1_door1_dist = self._bfs_distance(state_dict, keys[1], doors[1])
+        key0_key1_dist = self._bfs_distance(state_dict, keys[0], keys[1])
+        
+        # Handle infinite distances
+        if key0_door0_dist == float('inf'):
+            key0_door0_dist = self._manhattan_distance(keys[0], doors[0]) * 1.5
+        if key1_door1_dist == float('inf'):
+            key1_door1_dist = self._manhattan_distance(keys[1], doors[1]) * 1.5
+        if key0_key1_dist == float('inf'):
+            key0_key1_dist = self._manhattan_distance(keys[0], keys[1]) * 1.5
+        
+        # Calculate key-door proximity (normalized 0-1)
+        key_door_proximity = (6 - min(6, key0_door0_dist)) / 6 + (6 - min(6, key1_door1_dist)) / 6
+        key_door_proximity /= 2  # Average
+        
+        # Calculate key separation factor (0-1)
+        if key0_key1_dist < 3:  # Keys close together
+            key_separation = 0.8  # High impact in LIFO
+        elif key0_key1_dist > 7:  # Keys far apart
+            key_separation = 0.9  # Very high impact
+        else:
+            key_separation = 0.4  # Moderate impact
+        
+        # Combined LIFO constraint factor
+        lifo_factor = key_door_proximity * key_separation
+        
+        # 3. Enemy movement impact - orientation-independent analysis
+        # Find critical paths
+        critical_paths = self._analyze_critical_paths(state_dict)
+        
+        # Base enemy constraint
+        enemy_constraint = 0.2
+        
+        # Analyze each enemy's patrol path and its intersection with critical paths
+        for enemy_idx, enemy_pos in enumerate(enemy_positions):
+            # Get enemy type (0=horizontal, 1=vertical)
+            enemy_type = enemy_types[enemy_idx] if enemy_idx < len(enemy_types) else 0
+            
+            # Find enemy patrol path
+            patrol_path = self._find_enemy_patrol_path(state_dict, enemy_pos, enemy_type)
+            
+            # Check intersection with critical paths
+            intersection_count = 0
+            for path in critical_paths:
+                # Check if this path intersects with patrol path
+                path_set = set(path)
+                patrol_set = set(patrol_path)
+                if path_set.intersection(patrol_set):
+                    intersection_count += 1
+            
+            # More constraint if enemy intersects critical paths
+            if intersection_count > 0:
+                # Calculate an increase based on number of paths intersected
+                # Normalize so 1 path = +0.2, 2 paths = +0.35, 3+ paths = +0.5
+                increase = min(0.5, 0.2 + (intersection_count - 1) * 0.15)
+                enemy_constraint = min(1.0, enemy_constraint + increase)
+        
+        # 4. Spatial constraints (walls and compartments)
+        # Wall density
+        wall_density = len(walls) / (grid_size * grid_size)
+        
+        # Compartment analysis
         visited = set()
         compartments = 0
         
@@ -373,30 +569,34 @@ class DQNAgentEnhanced:
             for x in range(grid_size):
                 pos = (x, y)
                 if pos not in visited and pos not in walls:
-                    # Found a new unvisited compartment - explore it using BFS
                     self._explore_compartment(pos, walls, visited, grid_size)
                     compartments += 1
         
-        # 3. Calculate constraint metrics
-        wall_density = len(walls) / (grid_size * grid_size)
-        path_ratio = paths_count / max(1, total_paths_attempted)
-        compartment_ratio = compartments / (grid_size * grid_size / 4)  # Normalized by expected compartments
+        # Normalize compartments (typically 1-3 in this environment)
+        compartment_factor = min(1.0, (compartments - 1) / 2)
         
-        # 4. Calculate a single factor based on these metrics
-        # Higher values = more constrained = more KSM influence
-        constraint_factor = (0.4 * wall_density + 0.4 * (1 - path_ratio) + 0.2 * compartment_ratio)
+        # 5. Combine factors with appropriate weights
+        ksm_factor = (
+            0.25 * path_constraint_factor +  # Path planning importance
+            0.3 * lifo_factor +              # LIFO constraint impact
+            0.2 * enemy_constraint +         # Enemy avoidance influence
+            0.15 * wall_density +            # Wall density
+            0.1 * compartment_factor         # Compartment influence
+        )
         
-        # Scale to [0.2, 1.0] range - even open environments get some KSM
-        ksm_factor = 0.2 + (0.8 * constraint_factor)
+        # Ensure a reasonable range [0.1, 0.9]
+        # Even in simple environments, KSM should have some influence
+        ksm_factor = 0.1 + (0.8 * ksm_factor)
         
-        # Check for presence of enemy_types - if vertical enemy, increase factor
-        enemy_types = state_dict.get('enemy_types', None)
-        if enemy_types is not None and 1 in enemy_types:  # 1 = vertical enemy
-            ksm_factor = min(1.0, ksm_factor + 0.1)  # Vertical enemies make planning more critical
-        
-        # Print analysis results
-        print(f"Environment analysis: Walls={len(walls)}, Wall density={wall_density:.2f}, "
-              f"Path ratio={path_ratio:.2f}, Compartments={compartments}, KSM factor={ksm_factor:.2f}")
+        # Print detailed analysis for debugging
+        template_name = getattr(self, 'template_name', 'unknown')
+        print(f"Environment analysis for template '{template_name}':")
+        print(f"  Walls: {len(walls)}, Wall density: {wall_density:.2f}")
+        print(f"  Path constraint factor: {path_constraint_factor:.2f}")
+        print(f"  LIFO constraint factor: {lifo_factor:.2f}")
+        print(f"  Enemy constraint: {enemy_constraint:.2f}")
+        print(f"  Compartments: {compartments}, Compartment factor: {compartment_factor:.2f}")
+        print(f"  Final KSM factor: {ksm_factor:.2f}")
         
         return ksm_factor
     
@@ -454,7 +654,7 @@ class DQNAgentEnhanced:
         strategy3_cost = agent_to_key0 + key0_to_key1 + key1_to_door1 + key1_to_door0
         
         # Strategy 4: Key1 → Key0 → Door0 → Door1
-        strategy4_cost = agent_to_key1 + key0_to_key1 + key0_to_door0 + key0_to_door1
+        strategy4_cost = agent_to_key1 + key1_to_key0 + key0_to_door0 + key0_to_door1
         
         # Determine if keys are close to each other (using BFS distance)
         keys_are_close = key0_to_key1 <= 3
@@ -498,7 +698,7 @@ class DQNAgentEnhanced:
         return np.clip(score, -1.0, 1.0)
     
     def _calculate_adaptive_ksm(self, state_dict):
-        """Calculate adaptive KSM based on environment structure."""
+        """Calculate adaptive KSM based on environment structure only."""
         # Calculate the base KSM value
         base_ksm = self._calculate_key_selection_metric(state_dict)
         
