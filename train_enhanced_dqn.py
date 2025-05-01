@@ -9,12 +9,6 @@ import pandas as pd
 import random
 from tqdm import tqdm
 
-# Add GPU test
-print(f"CUDA available: {torch.cuda.is_available()}")
-if torch.cuda.is_available():
-    print(f"CUDA device: {torch.cuda.get_device_name(0)}")
-    print(f"CUDA device count: {torch.cuda.device_count()}")
-
 from template_lifo_corridors import TemplateLIFOCorridorsEnv
 from dqn_agent_enhanced import DQNAgentEnhanced
 
@@ -39,11 +33,11 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
         ksm_mode (str): Key Selection Metric mode ("off", "standard", or "adaptive")
     """
     # Create directory for results
-    augmented_str = "augmented" if use_augmented_state else "basic"
+    aug_str = "augmented" if use_augmented_state else "basic"
     shaping_str = "shaped" if use_reward_shaping else "raw"
     ksm_str = ksm_mode if ksm_mode != "off" else "no_ksm"
     
-    output_dir = f"{checkpoint_dir}_{template_name}_{augmented_str}_{shaping_str}_{ksm_str}"
+    output_dir = f"{checkpoint_dir}_{template_name}_{aug_str}_{shaping_str}_{ksm_str}"
     os.makedirs(output_dir, exist_ok=True)
     
     # Log file for detailed statistics
@@ -62,7 +56,7 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
     action_size = env.action_space.n
     
     print(f"Template: {template_name}, State size: {state_size}, Action size: {action_size}")
-    print(f"State representation: {augmented_str}")
+    print(f"State representation: {aug_str}")
     print(f"Reward shaping: {shaping_str}")
     print(f"Key Selection Metric (KSM): {ksm_mode}")
     
@@ -70,7 +64,7 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
     agent = DQNAgentEnhanced(state_size=state_size, action_size=action_size, 
                           seed=0, use_augmented_state=use_augmented_state,
                           ksm_mode=ksm_mode)
-
+    
     # Set template context for adaptive KSM
     if ksm_mode == "adaptive":
         agent.set_template_context(template_name)
@@ -125,6 +119,9 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
         wrong_key_count = 0
         termination_reason = 'incomplete'
         
+        # Initialize total reward tracking for this episode
+        agent.total_reward = 0
+        
         for t in range(max_t):
             # Select and perform action
             action = agent.act(state, eps)
@@ -153,6 +150,7 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
             # Update state and score
             state = next_state
             score += reward
+            agent.total_reward = score  # Update total reward for the episode
             
             # Render if enabled
             if render:
@@ -458,7 +456,7 @@ if __name__ == "__main__":
     parser.add_argument('--template', type=str, default="basic_med", 
                         choices=["basic_med", "sparse_med", "zipper_med", "bottleneck_med", "bottleneck_hard", "corridors_med"],
                         help='Template to use')
-    parser.add_argument('--episodes', type=int, default=15000, help='Number of episodes')
+    parser.add_argument('--episodes', type=int, default=4000, help='Number of episodes')
     parser.add_argument('--render', action='store_true', help='Render the environment')
     parser.add_argument('--output', type=str, default='enhanced_results', help='Output directory prefix')
     parser.add_argument('--eval-freq', type=int, default=100, help='Evaluation frequency')
