@@ -568,21 +568,45 @@ class DQNAgentEnhanced:
         manhattan_key1_door1 = self._manhattan_distance(keys[1], doors[1])
         manhattan_key0_key1 = self._manhattan_distance(keys[0], keys[1])
         
-        # Calculate total detour ratio (how much walls force longer paths)
+        # Path complexity has several components:
+        
+        # 1. Wall density factor - more walls = higher complexity
+        wall_density = len(walls) / 12.0  # Normalize by a value that gives good spread
+        
+        # 2. Detour factor - how much walls force longer paths
         actual_paths = agent_key0 + agent_key1 + key0_door0 + key1_door1 + key0_key1
         direct_paths = manhattan_agent_key0 + manhattan_agent_key1 + manhattan_key0_door0 + manhattan_key1_door1 + manhattan_key0_key1
         
         if direct_paths > 0:
             detour_ratio = (actual_paths - direct_paths) / direct_paths
-            # Add a wall density bonus to path complexity
-            path_complexity = min(1.0, detour_ratio + (len(walls) / 20.0))
         else:
-            path_complexity = min(1.0, len(walls) / 20.0)  # Fallback based on wall count
+            detour_ratio = 0.0
+            
+        # 3. Key-Door-Key sequence complexity 
+        # This measures if the level requires navigating from key to door to other key
+        # Higher values indicate more complex path dependencies
+        key_door_key_complexity = 0.0
         
-        # Revisit corridors and maze-like templates - if they have 6+ walls,
-        # give them a path complexity boost even if detour ratio is low
-        if len(walls) >= 6 and path_complexity < 0.3:
-            path_complexity = max(path_complexity, 0.3)  # Minimum of 0.3 for complex mazes
+        if not both_keys_accessible:
+            # If one key is behind a door, there's a dependency
+            key_door_key_complexity = 0.3
+        elif door0_key1 < agent_key1 or door1_key0 < agent_key0:
+            # If going through a door provides a shorter path to the other key
+            # This indicates interesting level design with dependencies
+            key_door_key_complexity = 0.2
+        
+        # 4. Enemy interaction - approximate the effect of enemies on path planning
+        # For this implementation, we'll use a simple approximation based on the 
+        # path length to estimate the likelihood of enemy interaction
+        enemy_interaction = min(1.0, (actual_paths / 30.0))
+        
+        # Combine all path complexity factors
+        path_complexity = min(1.0, (
+            0.4 * wall_density +
+            0.3 * detour_ratio + 
+            0.2 * key_door_key_complexity +
+            0.1 * enemy_interaction
+        ))
         
         # 3. STRATEGY IMPORTANCE - how much the key order matters
         if key0_first_viable and key1_first_viable:
@@ -620,22 +644,11 @@ class DQNAgentEnhanced:
         lifo_constraint = max(0.0, min(1.0, lifo_constraint))
         
         # 5. COMBINED KSM FACTOR - weighted combination with higher path weight
-        raw_ksm_factor = (
+        ksm_factor = (
             0.30 * strategy_importance +  # Strategy cost difference (30%)
             0.25 * lifo_constraint +      # LIFO-specific constraints (25%)
-            0.45 * path_complexity        # Path planning difficulty (45%) - significantly increased
+            0.45 * path_complexity        # Path planning difficulty (45%)
         )
-        
-        # Apply stronger non-linear scaling to spread values
-        # Use a power function to create wider separation
-        base_scaling = 0.15  # Minimum KSM value
-        max_scaling = 0.85   # Maximum KSM value
-        
-        # Apply power scaling (exponent 0.7 gives a good spread)
-        scaled_value = raw_ksm_factor ** 0.7
-        
-        # Map to desired range [base_scaling, max_scaling]
-        ksm_factor = base_scaling + scaled_value * (max_scaling - base_scaling)
         
         # Ensure the factor is in [0, 1] range
         ksm_factor = max(0.0, min(1.0, ksm_factor))
@@ -649,11 +662,13 @@ class DQNAgentEnhanced:
         print(f"  Key1 first viable: {str(key1_first_viable)}")
         print(f"  Strategy1 cost: {strategy1:.1f}")
         print(f"  Strategy2 cost: {strategy2:.1f}")
+        print(f"  Wall density: {wall_density:.2f}")
+        print(f"  Detour ratio: {detour_ratio:.2f}")
+        print(f"  K-D-K complexity: {key_door_key_complexity:.2f}")
         print(f"  Path complexity: {path_complexity:.2f}")
         print(f"  Strategy importance: {strategy_importance:.2f}")
         print(f"  LIFO constraint: {lifo_constraint:.2f}")
-        print(f"  Raw KSM factor: {raw_ksm_factor:.2f}")
-        print(f"  Final KSM factor: {ksm_factor:.2f}")
+        print(f"  KSM factor: {ksm_factor:.2f}")
         
         return ksm_factor
     
