@@ -574,9 +574,15 @@ class DQNAgentEnhanced:
         
         if direct_paths > 0:
             detour_ratio = (actual_paths - direct_paths) / direct_paths
-            path_complexity = min(1.0, detour_ratio)
+            # Add a wall density bonus to path complexity
+            path_complexity = min(1.0, detour_ratio + (len(walls) / 20.0))
         else:
-            path_complexity = 0.0
+            path_complexity = min(1.0, len(walls) / 20.0)  # Fallback based on wall count
+        
+        # Revisit corridors and maze-like templates - if they have 6+ walls,
+        # give them a path complexity boost even if detour ratio is low
+        if len(walls) >= 6 and path_complexity < 0.3:
+            path_complexity = max(path_complexity, 0.3)  # Minimum of 0.3 for complex mazes
         
         # 3. STRATEGY IMPORTANCE - how much the key order matters
         if key0_first_viable and key1_first_viable:
@@ -613,30 +619,26 @@ class DQNAgentEnhanced:
         # Ensure LIFO constraint is in [0,1] range
         lifo_constraint = max(0.0, min(1.0, lifo_constraint))
         
-        # Calculate wall density factor (normalized)
-        wall_density = min(1.0, len(walls) / 10.0)
-        
-        # 5. COMBINED KSM FACTOR - weighted combination of key factors
-        # Updated weights: Increased path complexity weight from 0.2 to 0.3
-        # Decreased strategy importance weight from 0.4 to 0.35
-        # Decreased LIFO constraint weight from 0.3 to 0.25
+        # 5. COMBINED KSM FACTOR - weighted combination with higher path weight
         raw_ksm_factor = (
-            0.35 * strategy_importance +  # Strategy cost difference (35%)
+            0.30 * strategy_importance +  # Strategy cost difference (30%)
             0.25 * lifo_constraint +      # LIFO-specific constraints (25%)
-            0.30 * path_complexity +      # Path planning difficulty (30%) - increased
-            0.10 * wall_density           # Basic wall density (10%)
+            0.45 * path_complexity        # Path planning difficulty (45%) - significantly increased
         )
         
-        # Apply non-linear scaling to spread values out
-        # This uses a sigmoid-like function to push values away from the middle
-        # Values below 0.5 get pushed down, values above 0.5 get pushed up
-        if raw_ksm_factor < 0.5:
-            scaled_ksm_factor = raw_ksm_factor * 1.4  # Spread lower values
-        else:
-            scaled_ksm_factor = 0.7 + (raw_ksm_factor - 0.5) * 0.6  # Spread higher values
+        # Apply stronger non-linear scaling to spread values
+        # Use a power function to create wider separation
+        base_scaling = 0.15  # Minimum KSM value
+        max_scaling = 0.85   # Maximum KSM value
+        
+        # Apply power scaling (exponent 0.7 gives a good spread)
+        scaled_value = raw_ksm_factor ** 0.7
+        
+        # Map to desired range [base_scaling, max_scaling]
+        ksm_factor = base_scaling + scaled_value * (max_scaling - base_scaling)
         
         # Ensure the factor is in [0, 1] range
-        ksm_factor = max(0.0, min(1.0, scaled_ksm_factor))
+        ksm_factor = max(0.0, min(1.0, ksm_factor))
         
         # Print detailed analysis in a consistent format
         template_name = getattr(self, 'template_name', 'unknown')
