@@ -48,7 +48,7 @@ class DQNAgentEnhanced:
     def __init__(self, state_size, action_size, seed=0, 
                  learning_rate=0.0003, gamma=0.99, tau=0.0005,
                  buffer_size=100000, batch_size=128, update_every=8,
-                 use_augmented_state=True, use_key_selection_metric=False):
+                 use_augmented_state=True, ksm_mode="off"):
         """Initialize agent parameters."""
         
         self.state_size = state_size
@@ -60,7 +60,7 @@ class DQNAgentEnhanced:
         self.batch_size = batch_size
         self.learning_rate = learning_rate
         self.use_augmented_state = use_augmented_state
-        self.use_key_selection_metric = use_key_selection_metric  # New flag for KSM
+        self.ksm_mode = ksm_mode  # "off", "standard", or "adaptive"
         
         # For adaptive success bias
         self.current_success_rate = 0.0
@@ -90,10 +90,15 @@ class DQNAgentEnhanced:
         """Choose appropriate state preprocessing based on flag."""
         if self.use_augmented_state:
             state_vector = self.preprocess_state_augmented(state_dict)
-            if self.use_key_selection_metric:
-                # Add KSM feature if enabled
+            
+            # Add KSM features if enabled
+            if self.ksm_mode == "standard":
                 ksm = self._calculate_key_selection_metric(state_dict)
                 state_vector = np.append(state_vector, ksm)
+            elif self.ksm_mode == "adaptive":
+                ksm, confidence = self._calculate_adaptive_ksm(state_dict)
+                state_vector = np.append(state_vector, [ksm, confidence])
+            
             return state_vector
         else:
             return self.preprocess_state_basic(state_dict)
@@ -257,7 +262,7 @@ class DQNAgentEnhanced:
         return float('inf')
     
     def _calculate_key_selection_metric(self, state_dict):
-        """Calculate the key selection metric (KSM) to guide key collection strategy using BFS pathfinding."""
+        """Calculate the key selection metric (KSM) to guide key collection strategy."""
         agent_pos = state_dict['agent']
         keys = state_dict['keys']
         doors = state_dict['doors']
@@ -352,6 +357,108 @@ class DQNAgentEnhanced:
         
         # Ensure the score is in [-1, 1] range
         return np.clip(score, -1.0, 1.0)
+    
+    def _calculate_adaptive_ksm(self, state_dict):
+        """Calculate the key selection metric (KSM) with adaptive confidence."""
+        agent_pos = state_dict['agent']
+        keys = state_dict['keys']
+        doors = state_dict['doors']
+        key_status = state_dict['key_status']
+        door_status = state_dict['door_status']
+        
+        # If one or both keys already collected, no need for selection strategy
+        if key_status[0] == 1 or key_status[1] == 1:
+            return 0.0, 0.5  # Neutral value with medium confidence
+        
+        # Calculate BFS distances between all relevant positions
+        agent_to_key0 = self._bfs_distance(state_dict, agent_pos, keys[0])
+        agent_to_key1 = self._bfs_distance(state_dict, agent_pos, keys[1])
+        key0_to_door0 = self._bfs_distance(state_dict, keys[0], doors[0])
+        key1_to_door1 = self._bfs_distance(state_dict, keys[1], doors[1])
+        key0_to_key1 = self._bfs_distance(state_dict, keys[0], keys[1])
+        door0_to_key1 = self._bfs_distance(state_dict, doors[0], keys[1])
+        door1_to_key0 = self._bfs_distance(state_dict, doors[1], keys[0])
+        key0_to_door1 = self._bfs_distance(state_dict, keys[0], doors[1])
+        key1_to_door0 = self._bfs_distance(state_dict, keys[1], doors[0])
+        
+        # Handle cases where no valid path exists - use Manhattan as fallback
+        if agent_to_key0 == float('inf'):
+            agent_to_key0 = self._manhattan_distance(agent_pos, keys[0]) * 1.5
+        if agent_to_key1 == float('inf'):
+            agent_to_key1 = self._manhattan_distance(agent_pos, keys[1]) * 1.5
+        if key0_to_door0 == float('inf'):
+            key0_to_door0 = self._manhattan_distance(keys[0], doors[0]) * 1.5
+        if key1_to_door1 == float('inf'):
+            key1_to_door1 = self._manhattan_distance(keys[1], doors[1]) * 1.5
+        if key0_to_key1 == float('inf'):
+            key0_to_key1 = self._manhattan_distance(keys[0], keys[1]) * 1.5
+        if door0_to_key1 == float('inf'):
+            door0_to_key1 = self._manhattan_distance(doors[0], keys[1]) * 1.5
+        if door1_to_key0 == float('inf'):
+            door1_to_key0 = self._manhattan_distance(doors[1], keys[0]) * 1.5
+        if key0_to_door1 == float('inf'):
+            key0_to_door1 = self._manhattan_distance(keys[0], doors[1]) * 1.5
+        if key1_to_door0 == float('inf'):
+            key1_to_door0 = self._manhattan_distance(keys[1], doors[0]) * 1.5
+        
+        # Calculate costs for different collection strategies
+        # Strategy 1: Key0 → Door0 → Key1 → Door1
+        strategy1_cost = agent_to_key0 + key0_to_door0 + door0_to_key1 + key1_to_door1
+        
+        # Strategy 2: Key1 → Door1 → Key0 → Door0
+        strategy2_cost = agent_to_key1 + key1_to_door1 + door1_to_key0 + key0_to_door0
+        
+        # Strategy 3: Key0 → Key1 → Door1 → Door0
+        strategy3_cost = agent_to_key0 + key0_to_key1 + key1_to_door1 + key1_to_door0
+        
+        # Strategy 4: Key1 → Key0 → Door0 → Door1
+        strategy4_cost = agent_to_key1 + key0_to_key1 + key0_to_door0 + key0_to_door1
+        
+        # Calculate best strategy costs
+        key0_first_cost = min(strategy1_cost, strategy3_cost)
+        key1_first_cost = min(strategy2_cost, strategy4_cost)
+        
+        # Calculate relative cost difference (how much better is the best strategy?)
+        total_cost = key0_first_cost + key1_first_cost
+        if total_cost > 0:
+            relative_diff = abs(key0_first_cost - key1_first_cost) / total_cost
+        else:
+            relative_diff = 0
+        
+        # Calculate environmental openness
+        # Count walls and obstacles
+        wall_count = sum(1 for wall in state_dict['walls'] if wall[0] >= 0)
+        grid_size = 6
+        total_cells = grid_size * grid_size
+        openness = 1.0 - (wall_count / total_cells)
+        
+        # Calculate variety of paths
+        # If keys are far apart, more path variety exists
+        path_variety = min(1.0, key0_to_key1 / (grid_size * 1.5))
+        
+        # Calculate confidence in KSM recommendation
+        # Higher confidence when:
+        # 1. One strategy is clearly better than others (high relative_diff)
+        # 2. Environment is constrained (low openness)
+        # 3. Limited path variety (low path_variety)
+        confidence = relative_diff * (1.2 - openness) * (1.1 - path_variety)
+        confidence = min(1.0, max(0.2, confidence))  # Bound between 0.2 and 1.0
+        
+        # Calculate the base KSM value
+        base_ksm = 0.0
+        if key0_first_cost < key1_first_cost:
+            diff = key1_first_cost - key0_first_cost
+            base_ksm = min(1.0, diff / 10)
+        elif key1_first_cost < key0_first_cost:
+            diff = key0_first_cost - key1_first_cost
+            base_ksm = -min(1.0, diff / 10)
+        
+        # Apply the confidence factor to the KSM value
+        # In open environments with similar-cost strategies, this will push KSM closer to 0
+        # In constrained environments with clear winners, this will maintain strong KSM values
+        adaptive_ksm = base_ksm * confidence
+        
+        return adaptive_ksm, confidence
     
     def _manhattan_distance(self, pos1, pos2):
         """Calculate Manhattan distance between two positions."""
