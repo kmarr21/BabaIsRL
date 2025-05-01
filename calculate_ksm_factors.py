@@ -19,8 +19,8 @@ def calculate_ksm_for_all_templates():
     ]
     
     print("\n===== KSM Factor Analysis for All Templates =====\n")
-    print(f"{'Template':<15} {'Walls':<8} {'Path':<8} {'Strategy':<10} {'LIFO':<8} {'KSM':<8}")
-    print("-" * 60)
+    print(f"{'Template':<15} {'Walls':<8} {'Path':<8} {'Strategy':<10} {'LIFO':<8} {'KSM':<8} {'Key0 Viable':<12} {'Key1 Viable':<12}")
+    print("-" * 90)
     
     results = {}
     
@@ -118,7 +118,7 @@ def calculate_ksm_for_all_templates():
         }
         
         # Display in table format
-        print(f"{template_name:<15} {wall_count:<8d} {constraints.get('path', 0.0):<8.2f} {constraints.get('strategy', 0.0):<10.2f} {constraints.get('lifo', 0.0):<8.2f} {constraints.get('ksm', 0.0):<8.2f}")
+        print(f"{template_name:<15} {wall_count:<8d} {constraints.get('path', 0.0):<8.2f} {constraints.get('strategy', 0.0):<10.2f} {constraints.get('lifo', 0.0):<8.2f} {constraints.get('ksm', 0.0):<8.2f} {str(key0_viable):<12} {str(key1_viable):<12}")
         
         # Close the environment
         env.close()
@@ -171,8 +171,7 @@ def calculate_ksm_for_all_templates():
 if __name__ == "__main__":
     check_results = calculate_ksm_for_all_templates()
     
-    print("\nExpected Ranking:")
-    print("1. bottleneck_hard/zipper_med - Complex environments with LIFO constraints")
-    print("2. bottleneck_med - Forced strategy but high path complexity")
-    print("3. basic_med - Moderate constraints")
-    print("4. corridors_med/sparse_med - Simpler environments with minimal constraints")
+    print("\nExpected Results:")
+    print("1. Templates with high KSM factors should have meaningful strategic choices")
+    print("2. Templates with forced path order (like bottleneck_med) should show only one viable strategy")
+    print("3. Templates with both keys accessible (like bottleneck_hard) should show both strategies as viable")
