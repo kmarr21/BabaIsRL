@@ -41,11 +41,12 @@ def validate_bfs_paths(env_state, template_name):
             exists = "YES"
         print(f"{name:<15}: {exists} - Distance: {distance if distance != float('inf') else 'inf'}")
     
-    # Path existence checks with door consideration
+    # Path existence checks with correct door accessibility
+    # When checking if agent can reach doors, we need to have the corresponding key available!
     can_reach_key0 = agent._bfs_path_exists(env_state, agent_pos, keys[0], consider_doors=True)
     can_reach_key1 = agent._bfs_path_exists(env_state, agent_pos, keys[1], consider_doors=True)
-    can_reach_door0 = agent._bfs_path_exists(env_state, agent_pos, doors[0], consider_doors=True)
-    can_reach_door1 = agent._bfs_path_exists(env_state, agent_pos, doors[1], consider_doors=True)
+    can_reach_door0 = agent._bfs_path_exists(env_state, agent_pos, doors[0], consider_doors=True, available_keys=[0])
+    can_reach_door1 = agent._bfs_path_exists(env_state, agent_pos, doors[1], consider_doors=True, available_keys=[1])
     
     print("\nReachability from Agent:")
     print(f"Can reach Key0: {can_reach_key0}")
@@ -77,32 +78,79 @@ def validate_bfs_paths(env_state, template_name):
     print(f"Key0 first strategy cost: {strategy1:.1f}")
     print(f"Key1 first strategy cost: {strategy2:.1f}")
     
-    # Sequential viability checks with flexibility for templates where both keys are accessible directly
-    # For Key0 first to be viable:
+    # Comprehensive viability checks considering all possibilities
+    
+    # Check if the agent can reach both keys directly
+    both_keys_accessible = can_reach_key0 and can_reach_key1
+    
+    # For Key0 first viability:
     # 1. Agent must be able to reach Key0
-    # 2. With Key0, must be able to reach Door0
-    # 3. After opening Door0 OR directly from start, must be able to reach Key1
-    # 4. With Key1, must be able to reach Door1
+    # 2. Key0 must be able to reach Door0
+    # 3a. If both keys are directly accessible:
+    #   - Key1 must be able to reach Door1 (may need to go through Door0 first)
+    # 3b. If Key1 is not directly accessible:
+    #   - Door0 must be able to reach Key1, and Key1 must be able to reach Door1
     key0_first_viable = (
-        agent._bfs_path_exists(env_state, agent_pos, keys[0], consider_doors=True) and
-        agent._bfs_path_exists(env_state, keys[0], doors[0], consider_doors=True, available_keys=[0]) and
-        (agent._bfs_path_exists(env_state, agent_pos, keys[1], consider_doors=True) or 
-         agent._bfs_path_exists(env_state, doors[0], keys[1], consider_doors=True, available_keys=[0])) and
-        agent._bfs_path_exists(env_state, keys[1], doors[1], consider_doors=True, available_keys=[1])
+        can_reach_key0 and
+        key0_door0 != float('inf') and
+        (
+            (both_keys_accessible and 
+             (agent._bfs_path_exists(env_state, keys[1], doors[1], consider_doors=True, available_keys=[0, 1]) or
+              agent._bfs_path_exists(env_state, doors[0], doors[1], consider_doors=True, available_keys=[0, 1]))) or
+            (not both_keys_accessible and
+             door0_key1 != float('inf') and key1_door1 != float('inf'))
+        )
     )
     
-    # For Key1 first to be viable:
+    # For Key1 first viability:
     # 1. Agent must be able to reach Key1
-    # 2. With Key1, must be able to reach Door1
-    # 3. After opening Door1 OR directly from start, must be able to reach Key0
-    # 4. With Key0, must be able to reach Door0
+    # 2. Key1 must be able to reach Door1
+    # 3a. If both keys are directly accessible:
+    #   - Key0 must be able to reach Door0 (may need to go through Door1 first)
+    # 3b. If Key0 is not directly accessible:
+    #   - Door1 must be able to reach Key0, and Key0 must be able to reach Door0
     key1_first_viable = (
-        agent._bfs_path_exists(env_state, agent_pos, keys[1], consider_doors=True) and
-        agent._bfs_path_exists(env_state, keys[1], doors[1], consider_doors=True, available_keys=[1]) and
-        (agent._bfs_path_exists(env_state, agent_pos, keys[0], consider_doors=True) or
-         agent._bfs_path_exists(env_state, doors[1], keys[0], consider_doors=True, available_keys=[1])) and
-        agent._bfs_path_exists(env_state, keys[0], doors[0], consider_doors=True, available_keys=[0])
+        can_reach_key1 and
+        key1_door1 != float('inf') and
+        (
+            (both_keys_accessible and 
+             (agent._bfs_path_exists(env_state, keys[0], doors[0], consider_doors=True, available_keys=[0, 1]) or
+              agent._bfs_path_exists(env_state, doors[1], doors[0], consider_doors=True, available_keys=[0, 1]))) or
+            (not both_keys_accessible and
+             door1_key0 != float('inf') and key0_door0 != float('inf'))
+        )
     )
+    
+    # Debugging: print intermediate checks for bottleneck_hard
+    if template_name == "bottleneck_hard":
+        print("\nDebugging bottleneck_hard viability:")
+        print(f"Both keys directly accessible: {both_keys_accessible}")
+        
+        # Key0 first debugging
+        k0_cond1 = can_reach_key0
+        k0_cond2 = key0_door0 != float('inf')
+        k0_cond3a = both_keys_accessible and (
+            agent._bfs_path_exists(env_state, keys[1], doors[1], consider_doors=True, available_keys=[0, 1]) or
+            agent._bfs_path_exists(env_state, doors[0], doors[1], consider_doors=True, available_keys=[0, 1])
+        )
+        k0_cond3b = (not both_keys_accessible and door0_key1 != float('inf') and key1_door1 != float('inf'))
+        print(f"Key0 first - Can reach Key0: {k0_cond1}")
+        print(f"Key0 first - Key0 can reach Door0: {k0_cond2}")
+        print(f"Key0 first - Path to Door1 with both keys: {k0_cond3a}")
+        print(f"Key0 first - Sequential path if needed: {k0_cond3b}")
+        
+        # Key1 first debugging
+        k1_cond1 = can_reach_key1
+        k1_cond2 = key1_door1 != float('inf')
+        k1_cond3a = both_keys_accessible and (
+            agent._bfs_path_exists(env_state, keys[0], doors[0], consider_doors=True, available_keys=[0, 1]) or
+            agent._bfs_path_exists(env_state, doors[1], doors[0], consider_doors=True, available_keys=[0, 1])
+        )
+        k1_cond3b = (not both_keys_accessible and door1_key0 != float('inf') and key0_door0 != float('inf'))
+        print(f"Key1 first - Can reach Key1: {k1_cond1}")
+        print(f"Key1 first - Key1 can reach Door1: {k1_cond2}")
+        print(f"Key1 first - Path to Door0 with both keys: {k1_cond3a}")
+        print(f"Key1 first - Sequential path if needed: {k1_cond3b}")
     
     print(f"\nKey0 first viable: {key0_first_viable}")
     print(f"Key1 first viable: {key1_first_viable}")
@@ -139,10 +187,13 @@ def validate_bfs_paths(env_state, template_name):
         print("Both keys close to doors: -0.2 to LIFO")
     
     # Check if one key is locked behind the other's door
-    if (not can_reach_key0 or not can_reach_key1) and not (can_reach_key0 and can_reach_key1):
+    if both_keys_accessible:
+        # Both keys are accessible directly - LIFO is more important
+        pass
+    else:
         # One key is locked - reduces LIFO importance (forced order)
         lifo_constraint = 0.1
-        print("One key not reachable: LIFO reduced to 0.1")
+        print("One key not directly reachable: LIFO reduced to 0.1")
     
     # Ensure LIFO constraint is in [0,1] range
     lifo_constraint = max(0.0, min(1.0, lifo_constraint))
