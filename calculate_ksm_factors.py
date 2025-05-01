@@ -19,8 +19,8 @@ def calculate_ksm_for_all_templates():
     ]
     
     print("\n===== KSM Factor Analysis for All Templates =====\n")
-    print(f"{'Template':<15} {'Walls':<8} {'Path':<8} {'Strategy':<10} {'KSM':<8}")
-    print("-" * 55)
+    print(f"{'Template':<15} {'Walls':<8} {'Path':<8} {'Strategy':<10} {'LIFO':<8} {'KSM':<8}")
+    print("-" * 60)
     
     results = {}
     
@@ -52,6 +52,10 @@ def calculate_ksm_for_all_templates():
         output_lines = detailed_output.getvalue().strip().split('\n')
         constraints = {}
         wall_count = 0
+        key0_viable = False
+        key1_viable = False
+        strategy1_cost = 0
+        strategy2_cost = 0
         
         for line in output_lines:
             if ":" in line:
@@ -59,33 +63,50 @@ def calculate_ksm_for_all_templates():
                 if len(parts) == 2:
                     key = parts[0].strip().lower()
                     if "walls" in key:
-                        # Extract wall count
-                        value_parts = parts[1].strip().split('-')
-                        if len(value_parts) > 0:
+                        try:
+                            wall_count = int(parts[1].strip())
+                        except:
+                            wall_count = 0
+                    elif "key0 first viable" in key:
+                        value_parts = parts[1].strip().split(',')
+                        key0_viable = "true" in value_parts[0].lower()
+                        if len(value_parts) > 1 and "cost" in value_parts[1]:
                             try:
-                                wall_count = int(value_parts[0].strip())
-                                constraints["wall"] = float(value_parts[1].strip().split()[1])
+                                strategy1_cost = float(value_parts[1].split(':')[1].strip())
                             except:
-                                wall_count = 0
-                                constraints["wall"] = 0.0
-                    elif "path" in key:
+                                strategy1_cost = 0
+                    elif "key1 first viable" in key:
+                        value_parts = parts[1].strip().split(',')
+                        key1_viable = "true" in value_parts[0].lower()
+                        if len(value_parts) > 1 and "cost" in value_parts[1]:
+                            try:
+                                strategy2_cost = float(value_parts[1].split(':')[1].strip())
+                            except:
+                                strategy2_cost = 0
+                    elif "path complexity" in key:
                         constraints["path"] = float(parts[1].strip())
-                    elif "strategy" in key:
+                    elif "strategy importance" in key:
                         constraints["strategy"] = float(parts[1].strip())
+                    elif "lifo constraint" in key:
+                        constraints["lifo"] = float(parts[1].strip())
                     elif "final" in key:
                         constraints["ksm"] = float(parts[1].strip())
         
         # Store results
         results[template_name] = {
             "walls": wall_count,
-            "wall": constraints.get("wall", 0.0),
             "path": constraints.get("path", 0.0),
             "strategy": constraints.get("strategy", 0.0),
-            "ksm": constraints.get("ksm", 0.0)
+            "lifo": constraints.get("lifo", 0.0),
+            "ksm": constraints.get("ksm", 0.0),
+            "key0_viable": key0_viable,
+            "key1_viable": key1_viable,
+            "strategy1_cost": strategy1_cost,
+            "strategy2_cost": strategy2_cost
         }
         
         # Display in table format
-        print(f"{template_name:<15} {wall_count:<8d} {constraints.get('path', 0.0):<8.2f} {constraints.get('strategy', 0.0):<10.2f} {constraints.get('ksm', 0.0):<8.2f}")
+        print(f"{template_name:<15} {wall_count:<8d} {constraints.get('path', 0.0):<8.2f} {constraints.get('strategy', 0.0):<10.2f} {constraints.get('lifo', 0.0):<8.2f} {constraints.get('ksm', 0.0):<8.2f}")
         
         # Close the environment
         env.close()
@@ -102,20 +123,36 @@ def calculate_ksm_for_all_templates():
     for template, values in results.items():
         # Find the highest constraint
         max_constraint = max(
-            ("Wall", values["wall"]), 
-            ("Path", values["path"]),
+            ("Path", values["path"]), 
             ("Strategy", values["strategy"]),
+            ("LIFO", values["lifo"]),
             key=lambda x: x[1]
         )
         print(f"{template:<15} - {max_constraint[0]} constraint: {max_constraint[1]:.2f}")
     
-    print("\nExpected KSM Ranking (Based on Environment Complexity):")
-    print("1. bottleneck_hard - Vertical enemy at critical bottleneck")
-    print("2. zipper_med - Vertical enemy with corridor constraints")
-    print("3. corridors_med - Maze-like pattern with multiple compartments")
-    print("4. bottleneck_med - Horizontal barrier with bottleneck")
-    print("5. basic_med - Simple layout with few walls")
-    print("6. sparse_med - Very open layout with minimal constraints")
+    print("\nStrategy Viability Analysis:")
+    for template, values in results.items():
+        key0_viable = values["key0_viable"]
+        key1_viable = values["key1_viable"]
+        strategy1_cost = values["strategy1_cost"]
+        strategy2_cost = values["strategy2_cost"]
+        
+        # Determine if both strategies are viable and which is better
+        if key0_viable and key1_viable:
+            if strategy1_cost < strategy2_cost:
+                better = "Key0 first"
+                diff = (strategy2_cost - strategy1_cost) / strategy1_cost * 100
+            else:
+                better = "Key1 first"
+                diff = (strategy1_cost - strategy2_cost) / strategy2_cost * 100
+            
+            print(f"{template:<15} - Both strategies viable. Better: {better} (by {diff:.1f}%)")
+        elif key0_viable:
+            print(f"{template:<15} - Only Key0 first viable")
+        elif key1_viable:
+            print(f"{template:<15} - Only Key1 first viable")
+        else:
+            print(f"{template:<15} - No viable strategies detected")
     
     return results
 
