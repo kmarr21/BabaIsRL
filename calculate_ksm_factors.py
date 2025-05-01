@@ -19,8 +19,8 @@ def calculate_ksm_for_all_templates():
     ]
     
     print("\n===== KSM Factor Analysis for All Templates =====\n")
-    print(f"{'Template':<15} {'Wall':<8} {'Path':<8} {'LIFO':<8} {'Enemy':<8} {'KSM':<8}")
-    print("-" * 60)
+    print(f"{'Template':<15} {'Wall':<8} {'Path':<8} {'Strategy':<10} {'KSM':<8}")
+    print("-" * 55)
     
     results = {}
     
@@ -60,10 +60,8 @@ def calculate_ksm_for_all_templates():
                         constraints["wall"] = float(parts[1].strip().split()[0])
                     elif "path" in key:
                         constraints["path"] = float(parts[1].strip().split()[0])
-                    elif "lifo" in key:
-                        constraints["lifo"] = float(parts[1].strip().split()[0])
-                    elif "enemy" in key:
-                        constraints["enemy"] = float(parts[1].strip().split()[0])
+                    elif "strategy" in key:
+                        constraints["strategy"] = float(parts[1].strip().split()[0])
                     elif "final" in key:
                         constraints["ksm"] = float(parts[1].strip().split()[0])
         
@@ -71,13 +69,12 @@ def calculate_ksm_for_all_templates():
         results[template_name] = {
             "wall": constraints.get("wall", 0.0),
             "path": constraints.get("path", 0.0),
-            "lifo": constraints.get("lifo", 0.0),
-            "enemy": constraints.get("enemy", 0.0),
+            "strategy": constraints.get("strategy", 0.0),
             "ksm": constraints.get("ksm", 0.0)
         }
         
         # Display in table format
-        print(f"{template_name:<15} {constraints.get('wall', 0.0):<8.2f} {constraints.get('path', 0.0):<8.2f} {constraints.get('lifo', 0.0):<8.2f} {constraints.get('enemy', 0.0):<8.2f} {constraints.get('ksm', 0.0):<8.2f}")
+        print(f"{template_name:<15} {constraints.get('wall', 0.0):<8.2f} {constraints.get('path', 0.0):<8.2f} {constraints.get('strategy', 0.0):<10.2f} {constraints.get('ksm', 0.0):<8.2f}")
         
         # Close the environment
         env.close()
@@ -96,11 +93,18 @@ def calculate_ksm_for_all_templates():
         max_constraint = max(
             ("Wall", values["wall"]), 
             ("Path", values["path"]),
-            ("LIFO", values["lifo"]),
-            ("Enemy", values["enemy"]),
+            ("Strategy", values["strategy"]),
             key=lambda x: x[1]
         )
         print(f"{template:<15} - {max_constraint[0]} constraint: {max_constraint[1]:.2f}")
+    
+    print("\nDetailed Analysis:")
+    for template, values in results.items():
+        print(f"\n{template}:")
+        print(f"  Wall constraint: {values['wall']:.2f} - Physical obstacles")
+        print(f"  Path complexity: {values['path']:.2f} - How much walls affect paths")
+        print(f"  Strategy importance: {values['strategy']:.2f} - How much key order matters")
+        print(f"  Final KSM factor: {values['ksm']:.2f}")
     
     return results
 
