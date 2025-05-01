@@ -65,12 +65,8 @@ class DQNAgentEnhanced:
         # For adaptive success bias
         self.current_success_rate = 0.0
         
-        # For tracking template-specific KSM effectiveness (adaptive mode)
-        self.ksm_effectiveness = {}  # Maps template_name -> effectiveness factor
-        self.template_success_history = {}  # Maps template_name -> list of success results
-        self.template_reward_history = {}  # Maps template_name -> list of rewards
-        self.current_template = None  # Current template being trained on
-        self.episode_count = 0  # Count of episodes for this template
+        # For environment-based KSM
+        self.env_ksm_factor = None  # Will be calculated once on first call
         
         # Q-Networks (policy and target)
         self.policy_net = DQN(state_size, action_size).to(device)
@@ -92,18 +88,6 @@ class DQNAgentEnhanced:
         
         # Success tracking
         self.current_episode_success = False
-    
-    def set_template_context(self, template_name):
-        """Set the current template context for adaptive KSM."""
-        self.current_template = template_name
-        
-        # Initialize tracking for this template if needed
-        if template_name not in self.ksm_effectiveness:
-            # Start with full KSM influence
-            self.ksm_effectiveness[template_name] = 1.0
-            self.template_success_history[template_name] = []
-            self.template_reward_history[template_name] = []
-            self.episode_count = 0
     
     def preprocess_state(self, state_dict):
         """Choose appropriate state preprocessing based on flag."""
@@ -280,6 +264,142 @@ class DQNAgentEnhanced:
         # If no path found
         return float('inf')
     
+    def _bfs_path_exists(self, state_dict, start_pos, target_pos):
+        """Check if a path exists between two positions using BFS."""
+        # Extract walls
+        walls = []
+        for wall in state_dict['walls']:
+            if wall[0] >= 0:  # Filter out -1 placeholders
+                walls.append((wall[0], wall[1]))
+        
+        grid_size = 6
+        
+        # Skip if positions are invalid
+        if not (0 <= start_pos[0] < grid_size and 0 <= start_pos[1] < grid_size and
+                0 <= target_pos[0] < grid_size and 0 <= target_pos[1] < grid_size):
+            return False
+        
+        # If start and target are the same
+        if np.array_equal(start_pos, target_pos):
+            return True
+        
+        # Convert positions to tuples
+        start = tuple(start_pos)
+        target = tuple(target_pos)
+        
+        # BFS
+        queue = deque([start])
+        visited = {start}
+        
+        # Possible movements
+        moves = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+        
+        while queue:
+            pos = queue.popleft()
+            
+            for dx, dy in moves:
+                new_pos = (pos[0] + dx, pos[1] + dy)
+                
+                if (0 <= new_pos[0] < grid_size and 0 <= new_pos[1] < grid_size and
+                    new_pos not in visited and new_pos not in walls):
+                    
+                    if new_pos == target:
+                        return True
+                    
+                    visited.add(new_pos)
+                    queue.append(new_pos)
+        
+        return False
+    
+    def _explore_compartment(self, start_pos, walls, visited, grid_size):
+        """Explore a compartment using BFS and mark visited positions."""
+        queue = deque([start_pos])
+        visited.add(start_pos)
+        
+        moves = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+        
+        while queue:
+            x, y = queue.popleft()
+            
+            for dx, dy in moves:
+                new_pos = (x + dx, y + dy)
+                
+                if (0 <= new_pos[0] < grid_size and 0 <= new_pos[1] < grid_size and
+                    new_pos not in visited and new_pos not in walls):
+                    
+                    visited.add(new_pos)
+                    queue.append(new_pos)
+    
+    def calculate_environment_ksm_factor(self, state_dict):
+        """Calculate a static KSM factor based on environment analysis."""
+        # Extract walls and grid features
+        walls = []
+        for wall in state_dict['walls']:
+            if wall[0] >= 0:  # Filter out -1 placeholders
+                walls.append((wall[0], wall[1]))
+        
+        grid_size = 6
+        
+        # 1. Analyze path constraints
+        # Calculate number of valid paths between keys and doors using BFS
+        agent_pos = state_dict['agent']
+        keys = state_dict['keys']
+        doors = state_dict['doors']
+        
+        # Count paths between important locations
+        paths_count = 0
+        total_paths_attempted = 0
+        
+        # Check paths between all key/door combinations
+        for i in range(2):  # For each key
+            for j in range(2):  # For each door
+                path_exists = self._bfs_path_exists(state_dict, keys[i], doors[j])
+                if path_exists:
+                    paths_count += 1
+                total_paths_attempted += 1
+        
+        # Check paths between keys
+        path_exists = self._bfs_path_exists(state_dict, keys[0], keys[1])
+        if path_exists:
+            paths_count += 1
+        total_paths_attempted += 1
+        
+        # 2. Analyze spatial constraints
+        # Calculate compartmentalization - how many separate areas exist
+        visited = set()
+        compartments = 0
+        
+        for y in range(grid_size):
+            for x in range(grid_size):
+                pos = (x, y)
+                if pos not in visited and pos not in walls:
+                    # Found a new unvisited compartment - explore it using BFS
+                    self._explore_compartment(pos, walls, visited, grid_size)
+                    compartments += 1
+        
+        # 3. Calculate constraint metrics
+        wall_density = len(walls) / (grid_size * grid_size)
+        path_ratio = paths_count / max(1, total_paths_attempted)
+        compartment_ratio = compartments / (grid_size * grid_size / 4)  # Normalized by expected compartments
+        
+        # 4. Calculate a single factor based on these metrics
+        # Higher values = more constrained = more KSM influence
+        constraint_factor = (0.4 * wall_density + 0.4 * (1 - path_ratio) + 0.2 * compartment_ratio)
+        
+        # Scale to [0.2, 1.0] range - even open environments get some KSM
+        ksm_factor = 0.2 + (0.8 * constraint_factor)
+        
+        # Check for presence of enemy_types - if vertical enemy, increase factor
+        enemy_types = state_dict.get('enemy_types', None)
+        if enemy_types is not None and 1 in enemy_types:  # 1 = vertical enemy
+            ksm_factor = min(1.0, ksm_factor + 0.1)  # Vertical enemies make planning more critical
+        
+        # Print analysis results
+        print(f"Environment analysis: Walls={len(walls)}, Wall density={wall_density:.2f}, "
+              f"Path ratio={path_ratio:.2f}, Compartments={compartments}, KSM factor={ksm_factor:.2f}")
+        
+        return ksm_factor
+    
     def _calculate_key_selection_metric(self, state_dict):
         """Calculate the key selection metric (KSM) to guide key collection strategy."""
         agent_pos = state_dict['agent']
@@ -378,81 +498,18 @@ class DQNAgentEnhanced:
         return np.clip(score, -1.0, 1.0)
     
     def _calculate_adaptive_ksm(self, state_dict):
-        """Calculate adaptive KSM that adjusts based on performance."""
+        """Calculate adaptive KSM based on environment structure."""
         # Calculate the base KSM value
         base_ksm = self._calculate_key_selection_metric(state_dict)
         
-        # Apply effectiveness factor for the current template
-        if self.current_template is not None and self.current_template in self.ksm_effectiveness:
-            effectiveness = self.ksm_effectiveness[self.current_template]
-        else:
-            # Default to full effectiveness if no template context set
-            effectiveness = 1.0
+        # Use cached environment factor or calculate it
+        if self.env_ksm_factor is None:
+            self.env_ksm_factor = self.calculate_environment_ksm_factor(state_dict)
         
-        # Apply effectiveness to the KSM value
-        adaptive_ksm = base_ksm * effectiveness
+        # Apply environment factor to the KSM value
+        adaptive_ksm = base_ksm * self.env_ksm_factor
         
         return adaptive_ksm
-    
-    def update_ksm_effectiveness(self, episode_success, episode_reward):
-        """Update KSM effectiveness based on episode results."""
-        if self.current_template is None:
-            return
-            
-        # Track success and rewards
-        self.template_success_history[self.current_template].append(episode_success)
-        self.template_reward_history[self.current_template].append(episode_reward)
-        self.episode_count += 1
-        
-        # Only update after enough data gathered (every 10 episodes)
-        if self.episode_count % 10 == 0:
-            # Get recent history
-            recent_history = self.template_success_history[self.current_template][-50:]
-            
-            # Calculate success rate from recent history
-            success_rate = sum(recent_history) / len(recent_history) if recent_history else 0
-            
-            # Adaptive learning rate - slower changes as we get more data
-            learning_rate = 0.1 * max(0.1, min(1.0, 100 / self.episode_count))
-            
-            # Very high success rate (>0.9): Maintain or increase KSM influence
-            if success_rate > 0.9:
-                self.ksm_effectiveness[self.current_template] = min(
-                    1.0, 
-                    self.ksm_effectiveness[self.current_template] + learning_rate * 0.5
-                )
-            # High success rate (>0.7): Slight increase in KSM influence
-            elif success_rate > 0.7:
-                self.ksm_effectiveness[self.current_template] = min(
-                    1.0, 
-                    self.ksm_effectiveness[self.current_template] + learning_rate * 0.2
-                )
-            # Low success rate (<0.3): Decrease KSM influence
-            elif success_rate < 0.3 and self.episode_count > 100:
-                self.ksm_effectiveness[self.current_template] = max(
-                    0.1, 
-                    self.ksm_effectiveness[self.current_template] - learning_rate
-                )
-            # Moderate success rate: Smaller adjustments
-            else:
-                # If success rate is improving, increase KSM slightly
-                if len(recent_history) >= 20:
-                    older_success = sum(recent_history[:-10]) / 10
-                    newer_success = sum(recent_history[-10:]) / 10
-                    
-                    if newer_success > older_success:
-                        self.ksm_effectiveness[self.current_template] = min(
-                            1.0, 
-                            self.ksm_effectiveness[self.current_template] + learning_rate * 0.1
-                        )
-                    elif newer_success < older_success:
-                        self.ksm_effectiveness[self.current_template] = max(
-                            0.1, 
-                            self.ksm_effectiveness[self.current_template] - learning_rate * 0.1
-                        )
-            
-            # Print current KSM effectiveness for debugging
-            print(f"Updated KSM effectiveness for template {self.current_template}: {self.ksm_effectiveness[self.current_template]:.2f}")
     
     def _manhattan_distance(self, pos1, pos2):
         """Calculate Manhattan distance between two positions."""
@@ -497,10 +554,8 @@ class DQNAgentEnhanced:
                 
             self.learn(success_bias=success_bias)
         
-        # If episode ended, update KSM effectiveness and reset episode success
+        # Reset episode success if episode ended
         if done:
-            if self.ksm_mode == "adaptive":
-                self.update_ksm_effectiveness(self.current_episode_success, self.total_reward if hasattr(self, 'total_reward') else reward)
             self.current_episode_success = False
     
     def act(self, state, eps=0.0):
@@ -585,7 +640,7 @@ class DQNAgentEnhanced:
             'target_state_dict': self.target_net.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'loss_list': self.loss_list,
-            'ksm_effectiveness': self.ksm_effectiveness
+            'env_ksm_factor': self.env_ksm_factor
         }
         torch.save(checkpoint, filename)
     
@@ -598,5 +653,5 @@ class DQNAgentEnhanced:
         self.loss_list = checkpoint['loss_list']
         
         # Load KSM effectiveness data if it exists
-        if 'ksm_effectiveness' in checkpoint:
-            self.ksm_effectiveness = checkpoint['ksm_effectiveness']
+        if 'env_ksm_factor' in checkpoint:
+            self.env_ksm_factor = checkpoint['env_ksm_factor']
