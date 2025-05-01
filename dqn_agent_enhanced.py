@@ -613,15 +613,30 @@ class DQNAgentEnhanced:
         # Ensure LIFO constraint is in [0,1] range
         lifo_constraint = max(0.0, min(1.0, lifo_constraint))
         
+        # Calculate wall density factor (normalized)
+        wall_density = min(1.0, len(walls) / 10.0)
+        
         # 5. COMBINED KSM FACTOR - weighted combination of key factors
-        # Strategy importance and viability are primary
-        # Path complexity and LIFO constraint are secondary
-        ksm_factor = (
-            0.4 * strategy_importance +  # Strategy cost difference
-            0.3 * lifo_constraint +      # LIFO-specific constraints
-            0.2 * path_complexity +      # Path planning difficulty
-            0.1 * (len(walls) / 10.0)    # Basic wall density
+        # Updated weights: Increased path complexity weight from 0.2 to 0.3
+        # Decreased strategy importance weight from 0.4 to 0.35
+        # Decreased LIFO constraint weight from 0.3 to 0.25
+        raw_ksm_factor = (
+            0.35 * strategy_importance +  # Strategy cost difference (35%)
+            0.25 * lifo_constraint +      # LIFO-specific constraints (25%)
+            0.30 * path_complexity +      # Path planning difficulty (30%) - increased
+            0.10 * wall_density           # Basic wall density (10%)
         )
+        
+        # Apply non-linear scaling to spread values out
+        # This uses a sigmoid-like function to push values away from the middle
+        # Values below 0.5 get pushed down, values above 0.5 get pushed up
+        if raw_ksm_factor < 0.5:
+            scaled_ksm_factor = raw_ksm_factor * 1.4  # Spread lower values
+        else:
+            scaled_ksm_factor = 0.7 + (raw_ksm_factor - 0.5) * 0.6  # Spread higher values
+        
+        # Ensure the factor is in [0, 1] range
+        ksm_factor = max(0.0, min(1.0, scaled_ksm_factor))
         
         # Print detailed analysis in a consistent format
         template_name = getattr(self, 'template_name', 'unknown')
@@ -635,6 +650,7 @@ class DQNAgentEnhanced:
         print(f"  Path complexity: {path_complexity:.2f}")
         print(f"  Strategy importance: {strategy_importance:.2f}")
         print(f"  LIFO constraint: {lifo_constraint:.2f}")
+        print(f"  Raw KSM factor: {raw_ksm_factor:.2f}")
         print(f"  Final KSM factor: {ksm_factor:.2f}")
         
         return ksm_factor
