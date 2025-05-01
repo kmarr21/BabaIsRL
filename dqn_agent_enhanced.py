@@ -654,7 +654,8 @@ class DQNAgentEnhanced:
         strategy3_cost = agent_to_key0 + key0_to_key1 + key1_to_door1 + key1_to_door0
         
         # Strategy 4: Key1 → Key0 → Door0 → Door1
-        strategy4_cost = agent_to_key1 + key1_to_key0 + key0_to_door0 + key0_to_door1
+        # FIXED: key1_to_key0 was missing, using key0_to_key1 which is equivalent
+        strategy4_cost = agent_to_key1 + key0_to_key1 + key0_to_door0 + key0_to_door1
         
         # Determine if keys are close to each other (using BFS distance)
         keys_are_close = key0_to_key1 <= 3
