@@ -70,6 +70,10 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
     agent = DQNAgentEnhanced(state_size=state_size, action_size=action_size, 
                           seed=0, use_augmented_state=use_augmented_state,
                           ksm_mode=ksm_mode)
+
+    # Set template context for adaptive KSM
+    if ksm_mode == "adaptive":
+        agent.set_template_context(template_name)
     
     # Initialize epsilon
     eps = eps_start
