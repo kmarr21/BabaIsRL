@@ -389,7 +389,7 @@ class DQNAgentEnhanced:
         walls = []
         for wall in state_dict['walls']:
             if wall[0] >= 0:  # Filter out -1 placeholders
-                walls.append(tuple(wall))
+                walls.append((wall[0], wall[1]))
         
         grid_size = 6
         patrol_path = []
@@ -464,138 +464,122 @@ class DQNAgentEnhanced:
         grid_size = 6
         
         # Extract key components
-        agent_pos = state_dict['agent']
         keys = state_dict['keys']
         doors = state_dict['doors']
         enemy_positions = state_dict['enemies']
-        enemy_directions = state_dict['enemy_directions']
         enemy_types = state_dict.get('enemy_types', [0])  # Default to horizontal if not provided
         
-        # 1. Path efficiency analysis - calculate optimal vs. actual paths
-        key_door_path_lengths = []
-        key_door_optimal_lengths = []
+        # 1. Wall constraint (physical obstacles)
+        wall_constraint = len(walls) / (grid_size * grid_size)
         
-        for i in range(2):  # For each key
-            for j in range(2):  # For each door
-                # Calculate BFS (accounting for walls)
-                path_length = self._bfs_distance(state_dict, keys[i], doors[j])
-                
-                # Calculate Manhattan (optimal without walls)
-                optimal_length = self._manhattan_distance(keys[i], doors[j])
-                
-                if path_length != float('inf'):
-                    key_door_path_lengths.append(path_length)
-                    key_door_optimal_lengths.append(optimal_length)
+        # 2. Path constraint analysis
+        # Calculate all key-door path ratios (actual/direct)
+        path_ratios = []
         
-        # Path efficiency ratio (higher = more constraints)
-        if key_door_path_lengths and key_door_optimal_lengths:
-            path_efficiency = sum(key_door_path_lengths) / sum(key_door_optimal_lengths)
-            # Cap at reasonable value (walls create detours)
-            path_efficiency = min(3.0, path_efficiency)
-            # Normalize to [0, 1]
-            path_constraint_factor = (path_efficiency - 1.0) / 2.0
+        # Key-to-door paths
+        for i in range(2):
+            for j in range(2):
+                manhattan = self._manhattan_distance(keys[i], doors[j])
+                bfs = self._bfs_distance(state_dict, keys[i], doors[j])
+                
+                if bfs != float('inf') and manhattan > 0:
+                    ratio = bfs / manhattan
+                    path_ratios.append(ratio)
+        
+        # Key-to-key path
+        manhattan = self._manhattan_distance(keys[0], keys[1])
+        bfs = self._bfs_distance(state_dict, keys[0], keys[1])
+        if bfs != float('inf') and manhattan > 0:
+            ratio = bfs / manhattan
+            path_ratios.append(ratio)
+        
+        # Calculate average ratio (higher means more detours)
+        if path_ratios:
+            avg_ratio = sum(path_ratios) / len(path_ratios)
+            # Normalize to [0, 1] (assuming max ratio around 3)
+            path_constraint = min(1.0, (avg_ratio - 1.0) / 2.0)
         else:
-            path_constraint_factor = 0.5  # Default if no valid paths
+            path_constraint = 0.5  # Default if no valid paths
         
-        # 2. LIFO constraint significance
-        # Calculate direct path between each key and its matching door
-        key0_door0_dist = self._bfs_distance(state_dict, keys[0], doors[0])
-        key1_door1_dist = self._bfs_distance(state_dict, keys[1], doors[1])
-        key0_key1_dist = self._bfs_distance(state_dict, keys[0], keys[1])
+        # 3. LIFO constraint analysis
+        # Get key-door distances
+        key0_door0 = self._bfs_distance(state_dict, keys[0], doors[0])
+        key1_door1 = self._bfs_distance(state_dict, keys[1], doors[1])
+        key0_key1 = self._bfs_distance(state_dict, keys[0], keys[1])
         
         # Handle infinite distances
-        if key0_door0_dist == float('inf'):
-            key0_door0_dist = self._manhattan_distance(keys[0], doors[0]) * 1.5
-        if key1_door1_dist == float('inf'):
-            key1_door1_dist = self._manhattan_distance(keys[1], doors[1]) * 1.5
-        if key0_key1_dist == float('inf'):
-            key0_key1_dist = self._manhattan_distance(keys[0], keys[1]) * 1.5
+        if key0_door0 == float('inf'):
+            key0_door0 = self._manhattan_distance(keys[0], doors[0]) * 1.5
+        if key1_door1 == float('inf'):
+            key1_door1 = self._manhattan_distance(keys[1], doors[1]) * 1.5
+        if key0_key1 == float('inf'):
+            key0_key1 = self._manhattan_distance(keys[0], keys[1]) * 1.5
         
-        # Calculate key-door proximity (normalized 0-1)
-        key_door_proximity = (6 - min(6, key0_door0_dist)) / 6 + (6 - min(6, key1_door1_dist)) / 6
-        key_door_proximity /= 2  # Average
+        # LIFO significance increases when:
+        # 1. Keys are close to each other (makes order important)
+        key_proximity = 1.0 - min(1.0, key0_key1 / 10.0)
         
-        # Calculate key separation factor (0-1)
-        if key0_key1_dist < 3:  # Keys close together
-            key_separation = 0.8  # High impact in LIFO
-        elif key0_key1_dist > 7:  # Keys far apart
-            key_separation = 0.9  # Very high impact
+        # 2. One key is much closer to its door than the other
+        door_diff = abs(key0_door0 - key1_door1) / max(1.0, max(key0_door0, key1_door1))
+        
+        # 3. Strategic thinking requirement
+        if min(key0_door0, key1_door1) < 3:
+            # If a key is very close to its door, LIFO planning is critical
+            strategic_factor = 0.8
+        elif key_proximity > 0.7 and door_diff > 0.3:
+            # If keys are close but doors are differently positioned
+            strategic_factor = 0.7
+        elif key_proximity < 0.3 and min(key0_door0, key1_door1) < 5:
+            # If keys are far but at least one door is relatively close
+            strategic_factor = 0.6
         else:
-            key_separation = 0.4  # Moderate impact
+            strategic_factor = 0.4
         
-        # Combined LIFO constraint factor
-        lifo_factor = key_door_proximity * key_separation
+        # Combined LIFO constraint
+        lifo_constraint = (0.5 * key_proximity + 0.3 * door_diff + 0.2 * strategic_factor)
         
-        # 3. Enemy movement impact - orientation-independent analysis
-        # Find critical paths
+        # 4. Enemy constraint analysis
+        # Identify critical paths (key-door, key-key)
         critical_paths = self._analyze_critical_paths(state_dict)
         
-        # Base enemy constraint
-        enemy_constraint = 0.2
+        # Find enemy patrol paths
+        patrol_paths = []
+        for i, enemy_pos in enumerate(enemy_positions):
+            enemy_type = enemy_types[i] if i < len(enemy_types) else 0
+            patrol = self._find_enemy_patrol_path(state_dict, enemy_pos, enemy_type)
+            patrol_paths.append(patrol)
         
-        # Analyze each enemy's patrol path and its intersection with critical paths
-        for enemy_idx, enemy_pos in enumerate(enemy_positions):
-            # Get enemy type (0=horizontal, 1=vertical)
-            enemy_type = enemy_types[enemy_idx] if enemy_idx < len(enemy_types) else 0
-            
-            # Find enemy patrol path
-            patrol_path = self._find_enemy_patrol_path(state_dict, enemy_pos, enemy_type)
-            
-            # Check intersection with critical paths
-            intersection_count = 0
-            for path in critical_paths:
-                # Check if this path intersects with patrol path
+        # Analyze path blockage
+        total_paths = len(critical_paths) if critical_paths else 1
+        blocked_paths = 0
+        
+        for path in critical_paths:
+            for patrol in patrol_paths:
+                # Check if patrol intersects this path
                 path_set = set(path)
-                patrol_set = set(patrol_path)
+                patrol_set = set(patrol)
                 if path_set.intersection(patrol_set):
-                    intersection_count += 1
-            
-            # More constraint if enemy intersects critical paths
-            if intersection_count > 0:
-                # Calculate an increase based on number of paths intersected
-                # Normalize so 1 path = +0.2, 2 paths = +0.35, 3+ paths = +0.5
-                increase = min(0.5, 0.2 + (intersection_count - 1) * 0.15)
-                enemy_constraint = min(1.0, enemy_constraint + increase)
+                    blocked_paths += 1
+                    break
         
-        # 4. Spatial constraints (walls and compartments)
-        # Wall density
-        wall_density = len(walls) / (grid_size * grid_size)
+        # Calculate blockage ratio and normalize
+        enemy_constraint = 0.2 + (0.8 * min(1.0, blocked_paths / total_paths))
         
-        # Compartment analysis
-        visited = set()
-        compartments = 0
-        
-        for y in range(grid_size):
-            for x in range(grid_size):
-                pos = (x, y)
-                if pos not in visited and pos not in walls:
-                    self._explore_compartment(pos, walls, visited, grid_size)
-                    compartments += 1
-        
-        # Normalize compartments (typically 1-3 in this environment)
-        compartment_factor = min(1.0, (compartments - 1) / 2)
-        
-        # 5. Combine factors with appropriate weights
+        # 5. Combined KSM factor
         ksm_factor = (
-            0.25 * path_constraint_factor +  # Path planning importance
-            0.3 * lifo_factor +              # LIFO constraint impact
-            0.2 * enemy_constraint +         # Enemy avoidance influence
-            0.15 * wall_density +            # Wall density
-            0.1 * compartment_factor         # Compartment influence
+            0.3 * path_constraint +    # Path planning complexity
+            0.3 * lifo_constraint +    # LIFO strategy importance
+            0.3 * enemy_constraint +   # Enemy avoidance difficulty
+            0.1 * wall_constraint      # Physical constraints
         )
         
-        # Ensure a reasonable range [0.1, 0.9]
-        # Even in simple environments, KSM should have some influence
-        ksm_factor = 0.1 + (0.8 * ksm_factor)
-        
-        # Print detailed analysis for debugging
+        # Print analysis for debugging
         template_name = getattr(self, 'template_name', 'unknown')
         print(f"Environment analysis for template '{template_name}':")
-        print(f"  Walls: {len(walls)}, Wall density: {wall_density:.2f}")
-        print(f"  Path constraint factor: {path_constraint_factor:.2f}")
-        print(f"  LIFO constraint factor: {lifo_factor:.2f}")
+        print(f"  Wall constraint: {wall_constraint:.2f}")
+        print(f"  Path constraint: {path_constraint:.2f}")
+        print(f"  LIFO constraint: {lifo_constraint:.2f}")
         print(f"  Enemy constraint: {enemy_constraint:.2f}")
-        print(f"  Compartments: {compartments}, Compartment factor: {compartment_factor:.2f}")
         print(f"  Final KSM factor: {ksm_factor:.2f}")
         
         return ksm_factor
@@ -654,7 +638,6 @@ class DQNAgentEnhanced:
         strategy3_cost = agent_to_key0 + key0_to_key1 + key1_to_door1 + key1_to_door0
         
         # Strategy 4: Key1 → Key0 → Door0 → Door1
-        # FIXED: key1_to_key0 was missing, using key0_to_key1 which is equivalent
         strategy4_cost = agent_to_key1 + key0_to_key1 + key0_to_door0 + key0_to_door1
         
         # Determine if keys are close to each other (using BFS distance)
