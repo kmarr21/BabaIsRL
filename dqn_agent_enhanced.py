@@ -216,13 +216,34 @@ class DQNAgentEnhanced:
         
         return state_vector
     
-    def _bfs_distance(self, state_dict, start_pos, target_pos):
-        """Calculate the shortest path distance accounting for walls using BFS."""
+    def _bfs_distance(self, state_dict, start_pos, target_pos, consider_doors=True, available_keys=None):
+        """Calculate the shortest path distance accounting for walls and locked doors using BFS.
+        
+        Args:
+            state_dict: Environment state dictionary
+            start_pos: Starting position [x, y]
+            target_pos: Target position [x, y]
+            consider_doors: Whether to treat locked doors as obstacles
+            available_keys: List of key indices available to open doors (if None, no keys available)
+        """
         # Extract walls from state_dict
         walls = []
         for wall in state_dict['walls']:
             if wall[0] >= 0:  # Filter out -1 placeholders
                 walls.append((wall[0], wall[1]))
+        
+        # Extract doors if needed
+        doors = {}
+        if consider_doors:
+            for i, door_pos in enumerate(state_dict['doors']):
+                if state_dict['door_status'][i] == 0:  # Only include closed doors
+                    doors[(door_pos[0], door_pos[1])] = i  # Map position to door index
+        
+        # If no keys provided, initialize empty set
+        if available_keys is None:
+            available_keys = set()
+        else:
+            available_keys = set(available_keys)
         
         # Grid size (assumed to be 6x6 as in the environment)
         grid_size = 6
@@ -255,10 +276,14 @@ class DQNAgentEnhanced:
                 nx, ny = x + dx, y + dy
                 new_pos = (nx, ny)
                 
-                # Check if new position is valid and not a wall
+                # Check if position is a locked door we can't open
+                is_locked_door = new_pos in doors and doors[new_pos] not in available_keys
+                
+                # Check if new position is valid, not a wall, and not a locked door we can't pass
                 if (0 <= nx < grid_size and 0 <= ny < grid_size and 
                     new_pos not in visited and 
-                    new_pos not in walls):
+                    new_pos not in walls and
+                    not is_locked_door):
                     
                     if new_pos == target:
                         return dist + 1  # Found the target
@@ -269,13 +294,26 @@ class DQNAgentEnhanced:
         # If no path found
         return float('inf')
     
-    def _simplified_path(self, state_dict, start_pos, target_pos):
+    def _simplified_path(self, state_dict, start_pos, target_pos, consider_doors=True, available_keys=None):
         """Return a simplified path between positions for analysis purposes."""
         # Extract walls
         walls = []
         for wall in state_dict['walls']:
             if wall[0] >= 0:  # Filter out -1 placeholders
                 walls.append((wall[0], wall[1]))
+        
+        # Extract doors if needed
+        doors = {}
+        if consider_doors:
+            for i, door_pos in enumerate(state_dict['doors']):
+                if state_dict['door_status'][i] == 0:  # Only include closed doors
+                    doors[(door_pos[0], door_pos[1])] = i  # Map position to door index
+        
+        # If no keys provided, initialize empty set
+        if available_keys is None:
+            available_keys = set()
+        else:
+            available_keys = set(available_keys)
         
         grid_size = 6
         
@@ -305,8 +343,12 @@ class DQNAgentEnhanced:
             for dx, dy in moves:
                 new_pos = (pos[0] + dx, pos[1] + dy)
                 
+                # Check if position is a locked door we can't open
+                is_locked_door = new_pos in doors and doors[new_pos] not in available_keys
+                
                 if (0 <= new_pos[0] < grid_size and 0 <= new_pos[1] < grid_size and
-                    new_pos not in visited and new_pos not in walls):
+                    new_pos not in visited and new_pos not in walls and
+                    not is_locked_door):
                     
                     new_path = path + [new_pos]
                     
@@ -318,13 +360,26 @@ class DQNAgentEnhanced:
         
         return []  # No path found
     
-    def _bfs_path_exists(self, state_dict, start_pos, target_pos):
+    def _bfs_path_exists(self, state_dict, start_pos, target_pos, consider_doors=True, available_keys=None):
         """Check if a path exists between two positions using BFS."""
         # Extract walls
         walls = []
         for wall in state_dict['walls']:
             if wall[0] >= 0:  # Filter out -1 placeholders
                 walls.append((wall[0], wall[1]))
+        
+        # Extract doors if needed
+        doors = {}
+        if consider_doors:
+            for i, door_pos in enumerate(state_dict['doors']):
+                if state_dict['door_status'][i] == 0:  # Only include closed doors
+                    doors[(door_pos[0], door_pos[1])] = i
+        
+        # If no keys provided, initialize empty set
+        if available_keys is None:
+            available_keys = set()
+        else:
+            available_keys = set(available_keys)
         
         grid_size = 6
         
@@ -354,8 +409,12 @@ class DQNAgentEnhanced:
             for dx, dy in moves:
                 new_pos = (pos[0] + dx, pos[1] + dy)
                 
+                # Check if position is a locked door we can't open
+                is_locked_door = new_pos in doors and doors[new_pos] not in available_keys
+                
                 if (0 <= new_pos[0] < grid_size and 0 <= new_pos[1] < grid_size and
-                    new_pos not in visited and new_pos not in walls):
+                    new_pos not in visited and new_pos not in walls and
+                    not is_locked_door):
                     
                     if new_pos == target:
                         return True
@@ -423,12 +482,12 @@ class DQNAgentEnhanced:
         # Find paths between all keys and doors
         for i in range(2):  # Each key
             for j in range(2):  # Each door
-                path = self._simplified_path(state_dict, keys[i], doors[j])
+                path = self._simplified_path(state_dict, keys[i], doors[j], consider_doors=True, available_keys=[i])
                 if path:  # If path exists
                     critical_paths.append(path)
         
         # Find path between keys
-        key_path = self._simplified_path(state_dict, keys[0], keys[1])
+        key_path = self._simplified_path(state_dict, keys[0], keys[1], consider_doors=True)
         if key_path:
             critical_paths.append(key_path)
             
@@ -447,14 +506,14 @@ class DQNAgentEnhanced:
         keys = state_dict['keys']
         doors = state_dict['doors']
         
-        # Calculate all relevant distances using BFS
-        agent_key0 = self._bfs_distance(state_dict, agent_pos, keys[0])
-        agent_key1 = self._bfs_distance(state_dict, agent_pos, keys[1])
-        key0_door0 = self._bfs_distance(state_dict, keys[0], doors[0])
-        key1_door1 = self._bfs_distance(state_dict, keys[1], doors[1])
-        key0_key1 = self._bfs_distance(state_dict, keys[0], keys[1])
-        door0_key1 = self._bfs_distance(state_dict, doors[0], keys[1])
-        door1_key0 = self._bfs_distance(state_dict, doors[1], keys[0])
+        # Calculate all relevant distances using BFS with door consideration
+        agent_key0 = self._bfs_distance(state_dict, agent_pos, keys[0], consider_doors=True)
+        agent_key1 = self._bfs_distance(state_dict, agent_pos, keys[1], consider_doors=True)
+        key0_door0 = self._bfs_distance(state_dict, keys[0], doors[0], consider_doors=True, available_keys=[0])
+        key1_door1 = self._bfs_distance(state_dict, keys[1], doors[1], consider_doors=True, available_keys=[1])
+        key0_key1 = self._bfs_distance(state_dict, keys[0], keys[1], consider_doors=True)
+        door0_key1 = self._bfs_distance(state_dict, doors[0], keys[1], consider_doors=True, available_keys=[0])
+        door1_key0 = self._bfs_distance(state_dict, doors[1], keys[0], consider_doors=True, available_keys=[1])
         
         # Handle infinite distances with Manhattan estimates
         if agent_key0 == float('inf'): agent_key0 = self._manhattan_distance(agent_pos, keys[0]) * 1.5
@@ -520,8 +579,8 @@ class DQNAgentEnhanced:
             lifo_constraint -= 0.2  # Reduce LIFO importance
         
         # Check if one key is locked behind the other's door
-        can_reach_key1_from_start = self._bfs_path_exists(state_dict, agent_pos, keys[1])
-        can_reach_key0_from_start = self._bfs_path_exists(state_dict, agent_pos, keys[0])
+        can_reach_key1_from_start = self._bfs_path_exists(state_dict, agent_pos, keys[1], consider_doors=True)
+        can_reach_key0_from_start = self._bfs_path_exists(state_dict, agent_pos, keys[0], consider_doors=True)
         
         if not can_reach_key1_from_start or not can_reach_key0_from_start:
             # One key is locked - reduces KSM importance (forced order)
@@ -569,15 +628,22 @@ class DQNAgentEnhanced:
             return 0.0
         
         # Calculate BFS distances between all relevant positions
-        agent_to_key0 = self._bfs_distance(state_dict, agent_pos, keys[0])
-        agent_to_key1 = self._bfs_distance(state_dict, agent_pos, keys[1])
-        key0_to_door0 = self._bfs_distance(state_dict, keys[0], doors[0])
-        key1_to_door1 = self._bfs_distance(state_dict, keys[1], doors[1])
-        key0_to_key1 = self._bfs_distance(state_dict, keys[0], keys[1])
-        door0_to_key1 = self._bfs_distance(state_dict, doors[0], keys[1])
-        door1_to_key0 = self._bfs_distance(state_dict, doors[1], keys[0])
-        key0_to_door1 = self._bfs_distance(state_dict, keys[0], doors[1])
-        key1_to_door0 = self._bfs_distance(state_dict, keys[1], doors[0])
+        # Initial condition: no keys available
+        agent_to_key0 = self._bfs_distance(state_dict, agent_pos, keys[0], consider_doors=True)
+        agent_to_key1 = self._bfs_distance(state_dict, agent_pos, keys[1], consider_doors=True)
+        
+        # If we collect key0
+        key0_to_door0 = self._bfs_distance(state_dict, keys[0], doors[0], consider_doors=True, available_keys=[0])
+        door0_to_key1 = self._bfs_distance(state_dict, doors[0], keys[1], consider_doors=True, available_keys=[0])
+        
+        # If we collect key1
+        key1_to_door1 = self._bfs_distance(state_dict, keys[1], doors[1], consider_doors=True, available_keys=[1])
+        door1_to_key0 = self._bfs_distance(state_dict, doors[1], keys[0], consider_doors=True, available_keys=[1])
+        
+        # Other relevant distances
+        key0_to_key1 = self._bfs_distance(state_dict, keys[0], keys[1], consider_doors=True)
+        key0_to_door1 = self._bfs_distance(state_dict, keys[0], doors[1], consider_doors=True, available_keys=[0])
+        key1_to_door0 = self._bfs_distance(state_dict, keys[1], doors[0], consider_doors=True, available_keys=[1])
         
         # Handle cases where no valid path exists - use Manhattan as fallback
         if agent_to_key0 == float('inf'):
