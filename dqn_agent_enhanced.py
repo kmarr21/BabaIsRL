@@ -435,7 +435,7 @@ class DQNAgentEnhanced:
         return critical_paths
     
     def calculate_environment_ksm_factor(self, state_dict):
-        """Calculate a static KSM factor based on thorough environment analysis."""
+        """Calculate a static KSM factor based on essential environment properties."""
         # Extract walls and grid features
         walls = []
         for wall in state_dict['walls']:
@@ -446,148 +446,87 @@ class DQNAgentEnhanced:
         agent_pos = state_dict['agent']
         keys = state_dict['keys']
         doors = state_dict['doors']
-        enemy_positions = state_dict['enemies']
-        enemy_types = state_dict.get('enemy_types', [0])  # Default to horizontal
         
-        # 1. Wall density - basic physical constraint
-        wall_constraint = len(walls) / (grid_size * grid_size)
+        # 1. Wall density (minimal impact)
+        wall_constraint = min(1.0, len(walls) / 10.0)  # Normalize against expected max walls
         
-        # 2. Path constraint analysis - improved to focus on detours
-        path_constraint = 0.0  # Start with zero
-        total_paths_weight = 0.0
-        
-        # Check each key-door path
-        for i in range(2):
-            for j in range(2):
-                manhattan = self._manhattan_distance(keys[i], doors[j])
-                bfs = self._bfs_distance(state_dict, keys[i], doors[j])
-                
-                if bfs != float('inf'):
-                    # Calculate detour factor - how much longer is the real path?
-                    if manhattan > 0:
-                        # The detour ratio is more meaningful than just path ratio
-                        detour = (bfs - manhattan) / manhattan
-                        # Higher weight for key-matching-door paths
-                        weight = 2.0 if i == j else 1.0
-                        path_constraint += min(1.0, detour) * weight
-                        total_paths_weight += weight
-                else:
-                    # If there's no path, that's a severe constraint
-                    weight = 2.0 if i == j else 1.0
-                    path_constraint += 1.0 * weight
-                    total_paths_weight += weight
-        
-        # Key-to-key path (important for sequential collection)
-        manhattan = self._manhattan_distance(keys[0], keys[1])
-        bfs = self._bfs_distance(state_dict, keys[0], keys[1])
-        if bfs != float('inf'):
-            if manhattan > 0:
-                detour = (bfs - manhattan) / manhattan
-                path_constraint += min(1.0, detour) * 2.0  # High weight for key-key path
-                total_paths_weight += 2.0
-        else:
-            path_constraint += 1.0 * 2.0
-            total_paths_weight += 2.0
-        
-        # Normalize based on total weights
-        if total_paths_weight > 0:
-            path_constraint /= total_paths_weight
-        
-        # 3. LIFO constraint analysis - directly use key strategy costs
-        # Calculate distances
+        # 2. Strategy importance - based on key collection strategies
+        # Calculate distances for strategy analysis
         key0_door0 = self._bfs_distance(state_dict, keys[0], doors[0])
         key1_door1 = self._bfs_distance(state_dict, keys[1], doors[1])
         key0_key1 = self._bfs_distance(state_dict, keys[0], keys[1])
         door0_to_key1 = self._bfs_distance(state_dict, doors[0], keys[1])
         door1_to_key0 = self._bfs_distance(state_dict, doors[1], keys[0])
-        key0_door1 = self._bfs_distance(state_dict, keys[0], doors[1])
-        key1_door0 = self._bfs_distance(state_dict, keys[1], doors[0])
         agent_to_key0 = self._bfs_distance(state_dict, agent_pos, keys[0])
         agent_to_key1 = self._bfs_distance(state_dict, agent_pos, keys[1])
         
-        # Handle infinite distances
+        # Handle infinite distances (no path)
         if key0_door0 == float('inf'):
-            key0_door0 = self._manhattan_distance(keys[0], doors[0]) * 1.5
+            key0_door0 = self._manhattan_distance(keys[0], doors[0]) * 2.0
         if key1_door1 == float('inf'):
-            key1_door1 = self._manhattan_distance(keys[1], doors[1]) * 1.5
+            key1_door1 = self._manhattan_distance(keys[1], doors[1]) * 2.0
         if key0_key1 == float('inf'):
-            key0_key1 = self._manhattan_distance(keys[0], keys[1]) * 1.5
+            key0_key1 = self._manhattan_distance(keys[0], keys[1]) * 2.0
         if door0_to_key1 == float('inf'):
-            door0_to_key1 = self._manhattan_distance(doors[0], keys[1]) * 1.5
+            door0_to_key1 = self._manhattan_distance(doors[0], keys[1]) * 2.0
         if door1_to_key0 == float('inf'):
-            door1_to_key0 = self._manhattan_distance(doors[1], keys[0]) * 1.5
-        if key0_door1 == float('inf'):
-            key0_door1 = self._manhattan_distance(keys[0], doors[1]) * 1.5
-        if key1_door0 == float('inf'):
-            key1_door0 = self._manhattan_distance(keys[1], doors[0]) * 1.5
+            door1_to_key0 = self._manhattan_distance(doors[1], keys[0]) * 2.0
         if agent_to_key0 == float('inf'):
-            agent_to_key0 = self._manhattan_distance(agent_pos, keys[0]) * 1.5
+            agent_to_key0 = self._manhattan_distance(agent_pos, keys[0]) * 2.0
         if agent_to_key1 == float('inf'):
-            agent_to_key1 = self._manhattan_distance(agent_pos, keys[1]) * 1.5
+            agent_to_key1 = self._manhattan_distance(agent_pos, keys[1]) * 2.0
         
-        # Calculate the same strategy costs we use in KSM
-        strategy1_cost = agent_to_key0 + key0_door0 + door0_to_key1 + key1_door1  # Key0 first
-        strategy2_cost = agent_to_key1 + key1_door1 + door1_to_key0 + key0_door0  # Key1 first
+        # Calculate strategies cost
+        strategy1 = agent_to_key0 + key0_door0 + door0_to_key1 + key1_door1  # Key0 first
+        strategy2 = agent_to_key1 + key1_door1 + door1_to_key0 + key0_door0  # Key1 first
         
-        # Calculate how much difference the key selection makes - critical factor!
-        if min(strategy1_cost, strategy2_cost) > 0:
-            strategy_diff = abs(strategy1_cost - strategy2_cost) / min(strategy1_cost, strategy2_cost)
-            # Cap at a reasonable value
-            strategy_importance = min(1.0, strategy_diff)
+        # Key-key distance affects strategy importance
+        key_proximity = 1.0 if key0_key1 <= 3 else 0.5  # Higher if keys are close
+        
+        # Calculate difference in strategies
+        if min(strategy1, strategy2) > 0:
+            strategy_diff = abs(strategy1 - strategy2) / min(strategy1, strategy2)
+            # Cap at reasonable value
+            strategy_importance = min(1.0, strategy_diff * key_proximity)
         else:
-            strategy_importance = 0.5  # Default if costs couldn't be calculated
+            strategy_importance = 0.5
         
-        # Key proximity (close keys = order matters more)
-        key_proximity = 1.0 - min(1.0, key0_key1 / 8.0)
+        # 3. Path complexity - calculate average detours
+        # Measure how much key-door paths are affected by walls
+        detour_ratios = []
         
-        # Door-key proximity difference (asymmetric distances increase importance)
-        door_diff = abs(key0_door0 - key1_door1) / max(1.0, max(key0_door0, key1_door1))
+        # For each key-door path, calculate detour ratio
+        for i in range(2):
+            for j in range(2):
+                manhattan = self._manhattan_distance(keys[i], doors[j])
+                bfs = self._bfs_distance(state_dict, keys[i], doors[j])
+                
+                if bfs != float('inf') and manhattan > 0:
+                    detour = max(0, (bfs - manhattan) / manhattan)
+                    # Higher weight for matching key-door pairs
+                    weight = 2.0 if i == j else 1.0
+                    detour_ratios.append((detour, weight))
         
-        # Combined LIFO constraint - highest weight on strategy importance
-        lifo_constraint = (0.3 * key_proximity + 0.2 * door_diff + 0.5 * strategy_importance)
+        # Calculate weighted average detour ratio
+        if detour_ratios:
+            total_detour = sum(detour * weight for detour, weight in detour_ratios)
+            total_weight = sum(weight for _, weight in detour_ratios)
+            path_complexity = min(1.0, total_detour / total_weight)
+        else:
+            path_complexity = 0.5
         
-        # 4. Enemy constraint analysis - focus on critical path blockage
-        critical_paths = self._analyze_critical_paths(state_dict)
-        
-        # Find enemy patrol paths
-        patrol_paths = []
-        for i, enemy_pos in enumerate(enemy_positions):
-            enemy_type = enemy_types[i] if i < len(enemy_types) else 0
-            patrol = self._find_enemy_patrol_path(state_dict, enemy_pos, enemy_type)
-            patrol_paths.append(patrol)
-        
-        # Analyze path blockage
-        total_paths = len(critical_paths) if critical_paths else 1
-        blocked_paths = 0
-        
-        for path in critical_paths:
-            for patrol in patrol_paths:
-                # Check if patrol intersects this path
-                path_set = set(path)
-                patrol_set = set(patrol)
-                if path_set.intersection(patrol_set):
-                    blocked_paths += 1
-                    break
-        
-        # Calculate blockage ratio and normalize
-        enemy_constraint = 0.2 + (0.8 * min(1.0, blocked_paths / total_paths))
-        
-        # 5. Combined KSM factor - weighted average of all constraints
-        # More weight on LIFO and path constraints which are the core challenges
+        # 4. Combined KSM factor
         ksm_factor = (
-            0.35 * path_constraint +    # Path planning complexity
-            0.35 * lifo_constraint +    # LIFO strategy importance
-            0.2 * enemy_constraint +    # Enemy avoidance difficulty
-            0.1 * wall_constraint       # Physical constraints
+            0.5 * strategy_importance +  # Strategy importance (highest weight)
+            0.4 * path_complexity +      # Path complexity
+            0.1 * wall_constraint        # Wall density (minimal impact)
         )
         
         # Print analysis for debugging
         template_name = getattr(self, 'template_name', 'unknown')
         print(f"Environment analysis for template '{template_name}':")
         print(f"  Wall constraint: {wall_constraint:.2f}")
-        print(f"  Path constraint: {path_constraint:.2f}")
-        print(f"  LIFO constraint: {lifo_constraint:.2f}")
-        print(f"  Enemy constraint: {enemy_constraint:.2f}")
+        print(f"  Path complexity: {path_complexity:.2f}")
         print(f"  Strategy importance: {strategy_importance:.2f}")
         print(f"  Final KSM factor: {ksm_factor:.2f}")
         
