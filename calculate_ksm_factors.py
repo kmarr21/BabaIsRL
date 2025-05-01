@@ -19,7 +19,7 @@ def calculate_ksm_for_all_templates():
     ]
     
     print("\n===== KSM Factor Analysis for All Templates =====\n")
-    print(f"{'Template':<15} {'Wall':<8} {'Path':<8} {'Strategy':<10} {'KSM':<8}")
+    print(f"{'Template':<15} {'Walls':<8} {'Path':<8} {'Strategy':<10} {'KSM':<8}")
     print("-" * 55)
     
     results = {}
@@ -51,22 +51,33 @@ def calculate_ksm_for_all_templates():
         # Parse the captured output to get constraint values
         output_lines = detailed_output.getvalue().strip().split('\n')
         constraints = {}
+        wall_count = 0
+        
         for line in output_lines:
             if ":" in line:
                 parts = line.split(":")
                 if len(parts) == 2:
                     key = parts[0].strip().lower()
-                    if "wall" in key:
-                        constraints["wall"] = float(parts[1].strip().split()[0])
+                    if "walls" in key:
+                        # Extract wall count
+                        value_parts = parts[1].strip().split('-')
+                        if len(value_parts) > 0:
+                            try:
+                                wall_count = int(value_parts[0].strip())
+                                constraints["wall"] = float(value_parts[1].strip().split()[1])
+                            except:
+                                wall_count = 0
+                                constraints["wall"] = 0.0
                     elif "path" in key:
-                        constraints["path"] = float(parts[1].strip().split()[0])
+                        constraints["path"] = float(parts[1].strip())
                     elif "strategy" in key:
-                        constraints["strategy"] = float(parts[1].strip().split()[0])
+                        constraints["strategy"] = float(parts[1].strip())
                     elif "final" in key:
-                        constraints["ksm"] = float(parts[1].strip().split()[0])
+                        constraints["ksm"] = float(parts[1].strip())
         
         # Store results
         results[template_name] = {
+            "walls": wall_count,
             "wall": constraints.get("wall", 0.0),
             "path": constraints.get("path", 0.0),
             "strategy": constraints.get("strategy", 0.0),
@@ -74,7 +85,7 @@ def calculate_ksm_for_all_templates():
         }
         
         # Display in table format
-        print(f"{template_name:<15} {constraints.get('wall', 0.0):<8.2f} {constraints.get('path', 0.0):<8.2f} {constraints.get('strategy', 0.0):<10.2f} {constraints.get('ksm', 0.0):<8.2f}")
+        print(f"{template_name:<15} {wall_count:<8d} {constraints.get('path', 0.0):<8.2f} {constraints.get('strategy', 0.0):<10.2f} {constraints.get('ksm', 0.0):<8.2f}")
         
         # Close the environment
         env.close()
@@ -98,13 +109,13 @@ def calculate_ksm_for_all_templates():
         )
         print(f"{template:<15} - {max_constraint[0]} constraint: {max_constraint[1]:.2f}")
     
-    print("\nDetailed Analysis:")
-    for template, values in results.items():
-        print(f"\n{template}:")
-        print(f"  Wall constraint: {values['wall']:.2f} - Physical obstacles")
-        print(f"  Path complexity: {values['path']:.2f} - How much walls affect paths")
-        print(f"  Strategy importance: {values['strategy']:.2f} - How much key order matters")
-        print(f"  Final KSM factor: {values['ksm']:.2f}")
+    print("\nExpected KSM Ranking (Based on Environment Complexity):")
+    print("1. bottleneck_hard - Vertical enemy at critical bottleneck")
+    print("2. zipper_med - Vertical enemy with corridor constraints")
+    print("3. corridors_med - Maze-like pattern with multiple compartments")
+    print("4. bottleneck_med - Horizontal barrier with bottleneck")
+    print("5. basic_med - Simple layout with few walls")
+    print("6. sparse_med - Very open layout with minimal constraints")
     
     return results
 
