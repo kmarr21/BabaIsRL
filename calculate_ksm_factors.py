@@ -54,43 +54,55 @@ def calculate_ksm_for_all_templates():
         wall_count = 0
         key0_viable = False
         key1_viable = False
-        strategy1_cost = 0
-        strategy2_cost = 0
+        strategy1_cost = 0.0
+        strategy2_cost = 0.0
         
         for line in output_lines:
             if ":" in line:
                 parts = line.split(":")
                 if len(parts) == 2:
                     key = parts[0].strip().lower()
+                    value = parts[1].strip()
+                    
                     if "walls" in key:
                         try:
-                            wall_count = int(parts[1].strip())
+                            wall_count = int(value)
                         except:
                             wall_count = 0
                     elif "key0 first viable" in key:
-                        value_parts = parts[1].strip().split(',')
-                        key0_viable = "true" in value_parts[0].lower()
-                        if len(value_parts) > 1 and "cost" in value_parts[1]:
-                            try:
-                                strategy1_cost = float(value_parts[1].split(':')[1].strip())
-                            except:
-                                strategy1_cost = 0
+                        key0_viable = value.lower() == "true"
                     elif "key1 first viable" in key:
-                        value_parts = parts[1].strip().split(',')
-                        key1_viable = "true" in value_parts[0].lower()
-                        if len(value_parts) > 1 and "cost" in value_parts[1]:
-                            try:
-                                strategy2_cost = float(value_parts[1].split(':')[1].strip())
-                            except:
-                                strategy2_cost = 0
+                        key1_viable = value.lower() == "true"
+                    elif "strategy1 cost" in key:
+                        try:
+                            strategy1_cost = float(value)
+                        except:
+                            strategy1_cost = 0.0
+                    elif "strategy2 cost" in key:
+                        try:
+                            strategy2_cost = float(value)
+                        except:
+                            strategy2_cost = 0.0
                     elif "path complexity" in key:
-                        constraints["path"] = float(parts[1].strip())
+                        try:
+                            constraints["path"] = float(value)
+                        except:
+                            constraints["path"] = 0.0
                     elif "strategy importance" in key:
-                        constraints["strategy"] = float(parts[1].strip())
+                        try:
+                            constraints["strategy"] = float(value)
+                        except:
+                            constraints["strategy"] = 0.0
                     elif "lifo constraint" in key:
-                        constraints["lifo"] = float(parts[1].strip())
-                    elif "final" in key:
-                        constraints["ksm"] = float(parts[1].strip())
+                        try:
+                            constraints["lifo"] = float(value)
+                        except:
+                            constraints["lifo"] = 0.0
+                    elif "final ksm factor" in key:
+                        try:
+                            constraints["ksm"] = float(value)
+                        except:
+                            constraints["ksm"] = 0.0
         
         # Store results
         results[template_name] = {
@@ -157,4 +169,10 @@ def calculate_ksm_for_all_templates():
     return results
 
 if __name__ == "__main__":
-    calculate_ksm_for_all_templates()
+    check_results = calculate_ksm_for_all_templates()
+    
+    print("\nExpected Ranking:")
+    print("1. bottleneck_hard/zipper_med - Complex environments with LIFO constraints")
+    print("2. bottleneck_med - Forced strategy but high path complexity")
+    print("3. basic_med - Moderate constraints")
+    print("4. corridors_med/sparse_med - Simpler environments with minimal constraints")
