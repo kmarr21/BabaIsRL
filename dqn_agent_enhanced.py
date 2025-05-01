@@ -506,12 +506,17 @@ class DQNAgentEnhanced:
         keys = state_dict['keys']
         doors = state_dict['doors']
         
+        # Check direct accessibility to keys
+        can_reach_key0 = self._bfs_path_exists(state_dict, agent_pos, keys[0], consider_doors=True)
+        can_reach_key1 = self._bfs_path_exists(state_dict, agent_pos, keys[1], consider_doors=True)
+        both_keys_accessible = can_reach_key0 and can_reach_key1
+        
         # Calculate all relevant distances using BFS with door consideration
         agent_key0 = self._bfs_distance(state_dict, agent_pos, keys[0], consider_doors=True)
         agent_key1 = self._bfs_distance(state_dict, agent_pos, keys[1], consider_doors=True)
         key0_door0 = self._bfs_distance(state_dict, keys[0], doors[0], consider_doors=True, available_keys=[0])
         key1_door1 = self._bfs_distance(state_dict, keys[1], doors[1], consider_doors=True, available_keys=[1])
-        key0_key1 = self._bfs_distance(state_dict, keys[0], keys[1], consider_doors=True)
+        key0_key1 = self._bfs_distance(state_dict, keys[0], keys[1], consider_doors=True, available_keys=[0])
         door0_key1 = self._bfs_distance(state_dict, doors[0], keys[1], consider_doors=True, available_keys=[0])
         door1_key0 = self._bfs_distance(state_dict, doors[1], keys[0], consider_doors=True, available_keys=[1])
         
@@ -524,33 +529,31 @@ class DQNAgentEnhanced:
         if door0_key1 == float('inf'): door0_key1 = self._manhattan_distance(doors[0], keys[1]) * 1.5
         if door1_key0 == float('inf'): door1_key0 = self._manhattan_distance(doors[1], keys[0]) * 1.5
         
-        # Check for direct accessibility to keys
-        can_reach_key0 = self._bfs_path_exists(state_dict, agent_pos, keys[0], consider_doors=True)
-        can_reach_key1 = self._bfs_path_exists(state_dict, agent_pos, keys[1], consider_doors=True)
-        
         # 1. STRATEGY VIABILITY - check if both key collection orders are viable
         # For Key0 first to be viable:
-        # - Agent must be able to reach Key0
-        # - Key0 must be able to reach Door0
-        # - After opening Door0, must be able to reach Key1 (either directly or through Door0)
-        # - Key1 must be able to reach Door1
         key0_first_viable = (
             can_reach_key0 and
-            (key0_door0 != float('inf')) and
-            (can_reach_key1 or door0_key1 != float('inf')) and
-            (key1_door1 != float('inf'))
+            key0_door0 != float('inf') and
+            (
+                (both_keys_accessible and 
+                 (self._bfs_path_exists(state_dict, keys[1], doors[1], consider_doors=True, available_keys=[0, 1]) or
+                  self._bfs_path_exists(state_dict, doors[0], doors[1], consider_doors=True, available_keys=[0, 1]))) or
+                (not both_keys_accessible and
+                 door0_key1 != float('inf') and key1_door1 != float('inf'))
+            )
         )
         
         # For Key1 first to be viable:
-        # - Agent must be able to reach Key1
-        # - Key1 must be able to reach Door1
-        # - After opening Door1, must be able to reach Key0 (either directly or through Door1)
-        # - Key0 must be able to reach Door0
         key1_first_viable = (
             can_reach_key1 and
-            (key1_door1 != float('inf')) and
-            (can_reach_key0 or door1_key0 != float('inf')) and
-            (key0_door0 != float('inf'))
+            key1_door1 != float('inf') and
+            (
+                (both_keys_accessible and 
+                 (self._bfs_path_exists(state_dict, keys[0], doors[0], consider_doors=True, available_keys=[0, 1]) or
+                  self._bfs_path_exists(state_dict, doors[1], doors[0], consider_doors=True, available_keys=[0, 1]))) or
+                (not both_keys_accessible and
+                 door1_key0 != float('inf') and key0_door0 != float('inf'))
+            )
         )
         
         # Calculate path costs for different strategies
@@ -603,7 +606,7 @@ class DQNAgentEnhanced:
             lifo_constraint -= 0.2  # Reduce LIFO importance
         
         # Check if one key is locked behind the other's door
-        if not can_reach_key0 or not can_reach_key1:
+        if not both_keys_accessible:
             # One key is locked - reduces KSM importance (forced order)
             lifo_constraint = 0.1
         
@@ -651,9 +654,9 @@ class DQNAgentEnhanced:
         # Check direct accessibility to keys
         can_reach_key0 = self._bfs_path_exists(state_dict, agent_pos, keys[0], consider_doors=True)
         can_reach_key1 = self._bfs_path_exists(state_dict, agent_pos, keys[1], consider_doors=True)
+        both_keys_accessible = can_reach_key0 and can_reach_key1
         
         # Calculate BFS distances between all relevant positions
-        # Initial condition: no keys available
         agent_to_key0 = self._bfs_distance(state_dict, agent_pos, keys[0], consider_doors=True)
         agent_to_key1 = self._bfs_distance(state_dict, agent_pos, keys[1], consider_doors=True)
         
@@ -690,27 +693,6 @@ class DQNAgentEnhanced:
         if key1_to_door0 == float('inf'):
             key1_to_door0 = self._manhattan_distance(keys[1], doors[0]) * 1.5
         
-        # Check viability of strategies
-        # For Key0 first to be viable:
-        key0_first_viable = (
-            can_reach_key0 and
-            (key0_to_door0 != float('inf')) and
-            (can_reach_key1 or door0_to_key1 != float('inf')) and
-            (key1_to_door1 != float('inf'))
-        )
-        
-        # For Key1 first to be viable:
-        key1_first_viable = (
-            can_reach_key1 and
-            (key1_to_door1 != float('inf')) and
-            (can_reach_key0 or door1_to_key0 != float('inf')) and
-            (key0_to_door0 != float('inf'))
-        )
-        
-        # If neither strategy is viable, something is wrong in the level design
-        if not key0_first_viable and not key1_first_viable:
-            return 0.0
-        
         # Calculate costs for different collection strategies
         # Strategy 1: Key0 → Door0 → Key1 → Door1
         strategy1_cost = agent_to_key0 + key0_to_door0 + door0_to_key1 + key1_to_door1
@@ -723,6 +705,33 @@ class DQNAgentEnhanced:
         
         # Strategy 4: Key1 → Key0 → Door0 → Door1
         strategy4_cost = agent_to_key1 + key0_to_key1 + key0_to_door0 + key0_to_door1
+        
+        # Check viability of strategies
+        # For Key0 first viability
+        key0_first_viable = (
+            can_reach_key0 and
+            key0_to_door0 != float('inf') and
+            (
+                (both_keys_accessible and 
+                 (self._bfs_path_exists(state_dict, keys[1], doors[1], consider_doors=True, available_keys=[0, 1]) or
+                  self._bfs_path_exists(state_dict, doors[0], doors[1], consider_doors=True, available_keys=[0, 1]))) or
+                (not both_keys_accessible and
+                 door0_to_key1 != float('inf') and key1_to_door1 != float('inf'))
+            )
+        )
+        
+        # For Key1 first viability
+        key1_first_viable = (
+            can_reach_key1 and
+            key1_to_door1 != float('inf') and
+            (
+                (both_keys_accessible and 
+                 (self._bfs_path_exists(state_dict, keys[0], doors[0], consider_doors=True, available_keys=[0, 1]) or
+                  self._bfs_path_exists(state_dict, doors[1], doors[0], consider_doors=True, available_keys=[0, 1]))) or
+                (not both_keys_accessible and
+                 door1_to_key0 != float('inf') and key0_to_door0 != float('inf'))
+            )
+        )
         
         # Determine if keys are close to each other (using BFS distance)
         keys_are_close = key0_to_key1 <= 3
