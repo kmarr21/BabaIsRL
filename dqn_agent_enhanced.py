@@ -466,7 +466,7 @@ class DQNAgentEnhanced:
         if door1_key0 == float('inf'): door1_key0 = self._manhattan_distance(doors[1], keys[0]) * 1.5
         
         # 1. STRATEGY VIABILITY - check if both key collection orders are viable
-        # For a strategy to be viable, paths must exist from start to both keys
+        # For a strategy to be viable, agent must be able to reach both keys and keys must reach their doors
         key0_first_viable = (agent_key0 != float('inf')) and (key0_door0 != float('inf'))
         key1_first_viable = (agent_key1 != float('inf')) and (key1_door1 != float('inf'))
         
@@ -540,12 +540,15 @@ class DQNAgentEnhanced:
             0.1 * (len(walls) / 10.0)    # Basic wall density
         )
         
-        # Print detailed analysis
+        # Print detailed analysis in a consistent format
         template_name = getattr(self, 'template_name', 'unknown')
         print(f"Environment analysis for template '{template_name}':")
         print(f"  Walls: {len(walls)}")
-        print(f"  Key0 first viable: {key0_first_viable}, cost: {strategy1:.1f}")
-        print(f"  Key1 first viable: {key1_first_viable}, cost: {strategy2:.1f}")
+        # Print viability as True/False strings for consistent parsing
+        print(f"  Key0 first viable: {str(key0_first_viable)}")
+        print(f"  Key1 first viable: {str(key1_first_viable)}")
+        print(f"  Strategy1 cost: {strategy1:.1f}")
+        print(f"  Strategy2 cost: {strategy2:.1f}")
         print(f"  Path complexity: {path_complexity:.2f}")
         print(f"  Strategy importance: {strategy_importance:.2f}")
         print(f"  LIFO constraint: {lifo_constraint:.2f}")
