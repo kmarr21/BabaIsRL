@@ -21,15 +21,15 @@ def validate_bfs_paths(env_state, template_name):
     print(f"Key positions: {keys}")
     print(f"Door positions: {doors}")
     
-    # Calculate all important paths using BFS
+    # Calculate all important paths using BFS - with door consideration
     paths = [
-        ("Agent -> Key0", agent._bfs_distance(env_state, agent_pos, keys[0])),
-        ("Agent -> Key1", agent._bfs_distance(env_state, agent_pos, keys[1])),
-        ("Key0 -> Door0", agent._bfs_distance(env_state, keys[0], doors[0])),
-        ("Key1 -> Door1", agent._bfs_distance(env_state, keys[1], doors[1])),
-        ("Key0 -> Key1", agent._bfs_distance(env_state, keys[0], keys[1])),
-        ("Door0 -> Key1", agent._bfs_distance(env_state, doors[0], keys[1])),
-        ("Door1 -> Key0", agent._bfs_distance(env_state, doors[1], keys[0]))
+        ("Agent -> Key0", agent._bfs_distance(env_state, agent_pos, keys[0], consider_doors=True)),
+        ("Agent -> Key1", agent._bfs_distance(env_state, agent_pos, keys[1], consider_doors=True)),
+        ("Key0 -> Door0", agent._bfs_distance(env_state, keys[0], doors[0], consider_doors=True, available_keys=[0])),
+        ("Key1 -> Door1", agent._bfs_distance(env_state, keys[1], doors[1], consider_doors=True, available_keys=[1])),
+        ("Key0 -> Key1", agent._bfs_distance(env_state, keys[0], keys[1], consider_doors=True, available_keys=[0])),
+        ("Door0 -> Key1", agent._bfs_distance(env_state, doors[0], keys[1], consider_doors=True, available_keys=[0])),
+        ("Door1 -> Key0", agent._bfs_distance(env_state, doors[1], keys[0], consider_doors=True, available_keys=[1]))
     ]
     
     # Check which paths exist and display their lengths
@@ -41,11 +41,11 @@ def validate_bfs_paths(env_state, template_name):
             exists = "YES"
         print(f"{name:<15}: {exists} - Distance: {distance if distance != float('inf') else 'inf'}")
     
-    # Path existence checks
-    can_reach_key0 = agent._bfs_path_exists(env_state, agent_pos, keys[0])
-    can_reach_key1 = agent._bfs_path_exists(env_state, agent_pos, keys[1])
-    can_reach_door0 = agent._bfs_path_exists(env_state, agent_pos, doors[0])
-    can_reach_door1 = agent._bfs_path_exists(env_state, agent_pos, doors[1])
+    # Path existence checks with door consideration
+    can_reach_key0 = agent._bfs_path_exists(env_state, agent_pos, keys[0], consider_doors=True)
+    can_reach_key1 = agent._bfs_path_exists(env_state, agent_pos, keys[1], consider_doors=True)
+    can_reach_door0 = agent._bfs_path_exists(env_state, agent_pos, doors[0], consider_doors=True)
+    can_reach_door1 = agent._bfs_path_exists(env_state, agent_pos, doors[1], consider_doors=True)
     
     print("\nReachability from Agent:")
     print(f"Can reach Key0: {can_reach_key0}")
@@ -53,13 +53,13 @@ def validate_bfs_paths(env_state, template_name):
     print(f"Can reach Door0: {can_reach_door0}")
     print(f"Can reach Door1: {can_reach_door1}")
     
-    # Calculate strategy costs
-    agent_key0 = agent._bfs_distance(env_state, agent_pos, keys[0])
-    agent_key1 = agent._bfs_distance(env_state, agent_pos, keys[1])
-    key0_door0 = agent._bfs_distance(env_state, keys[0], doors[0])
-    key1_door1 = agent._bfs_distance(env_state, keys[1], doors[1])
-    door0_key1 = agent._bfs_distance(env_state, doors[0], keys[1])
-    door1_key0 = agent._bfs_distance(env_state, doors[1], keys[0])
+    # Calculate strategy costs with door consideration
+    agent_key0 = agent._bfs_distance(env_state, agent_pos, keys[0], consider_doors=True)
+    agent_key1 = agent._bfs_distance(env_state, agent_pos, keys[1], consider_doors=True)
+    key0_door0 = agent._bfs_distance(env_state, keys[0], doors[0], consider_doors=True, available_keys=[0])
+    key1_door1 = agent._bfs_distance(env_state, keys[1], doors[1], consider_doors=True, available_keys=[1])
+    door0_key1 = agent._bfs_distance(env_state, doors[0], keys[1], consider_doors=True, available_keys=[0])
+    door1_key0 = agent._bfs_distance(env_state, doors[1], keys[0], consider_doors=True, available_keys=[1])
     
     # Handle infinite distances
     if agent_key0 == float('inf'): agent_key0 = agent._manhattan_distance(agent_pos, keys[0]) * 1.5
@@ -77,9 +77,30 @@ def validate_bfs_paths(env_state, template_name):
     print(f"Key0 first strategy cost: {strategy1:.1f}")
     print(f"Key1 first strategy cost: {strategy2:.1f}")
     
-    # Manually check viability
-    key0_first_viable = (agent_key0 != float('inf')) and (key0_door0 != float('inf'))
-    key1_first_viable = (agent_key1 != float('inf')) and (key1_door1 != float('inf'))
+    # Sequential viability checks
+    # For Key0 first to be viable:
+    # 1. Agent must be able to reach Key0
+    # 2. With Key0, must be able to reach Door0
+    # 3. After opening Door0, must be able to reach Key1
+    # 4. With Key1, must be able to reach Door1
+    key0_first_viable = (
+        agent._bfs_path_exists(env_state, agent_pos, keys[0], consider_doors=True) and
+        agent._bfs_path_exists(env_state, keys[0], doors[0], consider_doors=True, available_keys=[0]) and
+        agent._bfs_path_exists(env_state, doors[0], keys[1], consider_doors=True, available_keys=[0]) and
+        agent._bfs_path_exists(env_state, keys[1], doors[1], consider_doors=True, available_keys=[1])
+    )
+    
+    # For Key1 first to be viable:
+    # 1. Agent must be able to reach Key1
+    # 2. With Key1, must be able to reach Door1
+    # 3. After opening Door1, must be able to reach Key0
+    # 4. With Key0, must be able to reach Door0
+    key1_first_viable = (
+        agent._bfs_path_exists(env_state, agent_pos, keys[1], consider_doors=True) and
+        agent._bfs_path_exists(env_state, keys[1], doors[1], consider_doors=True, available_keys=[1]) and
+        agent._bfs_path_exists(env_state, doors[1], keys[0], consider_doors=True, available_keys=[1]) and
+        agent._bfs_path_exists(env_state, keys[0], doors[0], consider_doors=True, available_keys=[0])
+    )
     
     print(f"\nKey0 first viable: {key0_first_viable}")
     print(f"Key1 first viable: {key1_first_viable}")
@@ -94,7 +115,7 @@ def validate_bfs_paths(env_state, template_name):
         else:
             strategy_importance = 0.0
     elif key0_first_viable or key1_first_viable:
-        # Only one strategy is viable - low KSM value since no choice needed
+        # Only one strategy is viable - lower importance since no choice needed
         strategy_importance = 0.1
     else:
         # No viable strategies - something is wrong
@@ -106,7 +127,7 @@ def validate_bfs_paths(env_state, template_name):
     lifo_constraint = 0.3  # Base constraint value
     
     # Keys being close to each other makes LIFO more important
-    if agent._bfs_distance(env_state, keys[0], keys[1]) <= 3:
+    if agent._bfs_distance(env_state, keys[0], keys[1], consider_doors=True, available_keys=[0]) <= 3:
         lifo_constraint += 0.3
         print("Keys are close to each other: +0.3 to LIFO")
     
@@ -117,7 +138,7 @@ def validate_bfs_paths(env_state, template_name):
     
     # Check if one key is locked behind the other's door
     if not can_reach_key0 or not can_reach_key1:
-        # One key is locked - reduces KSM importance
+        # One key is locked - reduces LIFO importance (forced order)
         lifo_constraint = 0.1
         print("One key not reachable: LIFO reduced to 0.1")
     
