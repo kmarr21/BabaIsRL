@@ -65,6 +65,13 @@ class DQNAgentEnhanced:
         # For adaptive success bias
         self.current_success_rate = 0.0
         
+        # For tracking template-specific KSM effectiveness (adaptive mode)
+        self.ksm_effectiveness = {}  # Maps template_name -> effectiveness factor
+        self.template_success_history = {}  # Maps template_name -> list of success results
+        self.template_reward_history = {}  # Maps template_name -> list of rewards
+        self.current_template = None  # Current template being trained on
+        self.episode_count = 0  # Count of episodes for this template
+        
         # Q-Networks (policy and target)
         self.policy_net = DQN(state_size, action_size).to(device)
         self.target_net = DQN(state_size, action_size).to(device)
@@ -86,6 +93,18 @@ class DQNAgentEnhanced:
         # Success tracking
         self.current_episode_success = False
     
+    def set_template_context(self, template_name):
+        """Set the current template context for adaptive KSM."""
+        self.current_template = template_name
+        
+        # Initialize tracking for this template if needed
+        if template_name not in self.ksm_effectiveness:
+            # Start with full KSM influence
+            self.ksm_effectiveness[template_name] = 1.0
+            self.template_success_history[template_name] = []
+            self.template_reward_history[template_name] = []
+            self.episode_count = 0
+    
     def preprocess_state(self, state_dict):
         """Choose appropriate state preprocessing based on flag."""
         if self.use_augmented_state:
@@ -96,8 +115,8 @@ class DQNAgentEnhanced:
                 ksm = self._calculate_key_selection_metric(state_dict)
                 state_vector = np.append(state_vector, ksm)
             elif self.ksm_mode == "adaptive":
-                ksm, confidence = self._calculate_adaptive_ksm(state_dict)
-                state_vector = np.append(state_vector, [ksm, confidence])
+                ksm = self._calculate_adaptive_ksm(state_dict)
+                state_vector = np.append(state_vector, ksm)
             
             return state_vector
         else:
@@ -359,106 +378,81 @@ class DQNAgentEnhanced:
         return np.clip(score, -1.0, 1.0)
     
     def _calculate_adaptive_ksm(self, state_dict):
-        """Calculate the key selection metric (KSM) with adaptive confidence."""
-        agent_pos = state_dict['agent']
-        keys = state_dict['keys']
-        doors = state_dict['doors']
-        key_status = state_dict['key_status']
-        door_status = state_dict['door_status']
-        
-        # If one or both keys already collected, no need for selection strategy
-        if key_status[0] == 1 or key_status[1] == 1:
-            return 0.0, 0.5  # Neutral value with medium confidence
-        
-        # Calculate BFS distances between all relevant positions
-        agent_to_key0 = self._bfs_distance(state_dict, agent_pos, keys[0])
-        agent_to_key1 = self._bfs_distance(state_dict, agent_pos, keys[1])
-        key0_to_door0 = self._bfs_distance(state_dict, keys[0], doors[0])
-        key1_to_door1 = self._bfs_distance(state_dict, keys[1], doors[1])
-        key0_to_key1 = self._bfs_distance(state_dict, keys[0], keys[1])
-        door0_to_key1 = self._bfs_distance(state_dict, doors[0], keys[1])
-        door1_to_key0 = self._bfs_distance(state_dict, doors[1], keys[0])
-        key0_to_door1 = self._bfs_distance(state_dict, keys[0], doors[1])
-        key1_to_door0 = self._bfs_distance(state_dict, keys[1], doors[0])
-        
-        # Handle cases where no valid path exists - use Manhattan as fallback
-        if agent_to_key0 == float('inf'):
-            agent_to_key0 = self._manhattan_distance(agent_pos, keys[0]) * 1.5
-        if agent_to_key1 == float('inf'):
-            agent_to_key1 = self._manhattan_distance(agent_pos, keys[1]) * 1.5
-        if key0_to_door0 == float('inf'):
-            key0_to_door0 = self._manhattan_distance(keys[0], doors[0]) * 1.5
-        if key1_to_door1 == float('inf'):
-            key1_to_door1 = self._manhattan_distance(keys[1], doors[1]) * 1.5
-        if key0_to_key1 == float('inf'):
-            key0_to_key1 = self._manhattan_distance(keys[0], keys[1]) * 1.5
-        if door0_to_key1 == float('inf'):
-            door0_to_key1 = self._manhattan_distance(doors[0], keys[1]) * 1.5
-        if door1_to_key0 == float('inf'):
-            door1_to_key0 = self._manhattan_distance(doors[1], keys[0]) * 1.5
-        if key0_to_door1 == float('inf'):
-            key0_to_door1 = self._manhattan_distance(keys[0], doors[1]) * 1.5
-        if key1_to_door0 == float('inf'):
-            key1_to_door0 = self._manhattan_distance(keys[1], doors[0]) * 1.5
-        
-        # Calculate costs for different collection strategies
-        # Strategy 1: Key0 → Door0 → Key1 → Door1
-        strategy1_cost = agent_to_key0 + key0_to_door0 + door0_to_key1 + key1_to_door1
-        
-        # Strategy 2: Key1 → Door1 → Key0 → Door0
-        strategy2_cost = agent_to_key1 + key1_to_door1 + door1_to_key0 + key0_to_door0
-        
-        # Strategy 3: Key0 → Key1 → Door1 → Door0
-        strategy3_cost = agent_to_key0 + key0_to_key1 + key1_to_door1 + key1_to_door0
-        
-        # Strategy 4: Key1 → Key0 → Door0 → Door1
-        strategy4_cost = agent_to_key1 + key0_to_key1 + key0_to_door0 + key0_to_door1
-        
-        # Calculate best strategy costs
-        key0_first_cost = min(strategy1_cost, strategy3_cost)
-        key1_first_cost = min(strategy2_cost, strategy4_cost)
-        
-        # Calculate relative cost difference (how much better is the best strategy?)
-        total_cost = key0_first_cost + key1_first_cost
-        if total_cost > 0:
-            relative_diff = abs(key0_first_cost - key1_first_cost) / total_cost
-        else:
-            relative_diff = 0
-        
-        # Calculate environmental openness
-        # Count walls and obstacles
-        wall_count = sum(1 for wall in state_dict['walls'] if wall[0] >= 0)
-        grid_size = 6
-        total_cells = grid_size * grid_size
-        openness = 1.0 - (wall_count / total_cells)
-        
-        # Calculate variety of paths
-        # If keys are far apart, more path variety exists
-        path_variety = min(1.0, key0_to_key1 / (grid_size * 1.5))
-        
-        # Calculate confidence in KSM recommendation
-        # Higher confidence when:
-        # 1. One strategy is clearly better than others (high relative_diff)
-        # 2. Environment is constrained (low openness)
-        # 3. Limited path variety (low path_variety)
-        confidence = relative_diff * (1.2 - openness) * (1.1 - path_variety)
-        confidence = min(1.0, max(0.2, confidence))  # Bound between 0.2 and 1.0
-        
+        """Calculate adaptive KSM that adjusts based on performance."""
         # Calculate the base KSM value
-        base_ksm = 0.0
-        if key0_first_cost < key1_first_cost:
-            diff = key1_first_cost - key0_first_cost
-            base_ksm = min(1.0, diff / 10)
-        elif key1_first_cost < key0_first_cost:
-            diff = key0_first_cost - key1_first_cost
-            base_ksm = -min(1.0, diff / 10)
+        base_ksm = self._calculate_key_selection_metric(state_dict)
         
-        # Apply the confidence factor to the KSM value
-        # In open environments with similar-cost strategies, this will push KSM closer to 0
-        # In constrained environments with clear winners, this will maintain strong KSM values
-        adaptive_ksm = base_ksm * confidence
+        # Apply effectiveness factor for the current template
+        if self.current_template is not None and self.current_template in self.ksm_effectiveness:
+            effectiveness = self.ksm_effectiveness[self.current_template]
+        else:
+            # Default to full effectiveness if no template context set
+            effectiveness = 1.0
         
-        return adaptive_ksm, confidence
+        # Apply effectiveness to the KSM value
+        adaptive_ksm = base_ksm * effectiveness
+        
+        return adaptive_ksm
+    
+    def update_ksm_effectiveness(self, episode_success, episode_reward):
+        """Update KSM effectiveness based on episode results."""
+        if self.current_template is None:
+            return
+            
+        # Track success and rewards
+        self.template_success_history[self.current_template].append(episode_success)
+        self.template_reward_history[self.current_template].append(episode_reward)
+        self.episode_count += 1
+        
+        # Only update after enough data gathered (every 10 episodes)
+        if self.episode_count % 10 == 0:
+            # Get recent history
+            recent_history = self.template_success_history[self.current_template][-50:]
+            
+            # Calculate success rate from recent history
+            success_rate = sum(recent_history) / len(recent_history) if recent_history else 0
+            
+            # Adaptive learning rate - slower changes as we get more data
+            learning_rate = 0.1 * max(0.1, min(1.0, 100 / self.episode_count))
+            
+            # Very high success rate (>0.9): Maintain or increase KSM influence
+            if success_rate > 0.9:
+                self.ksm_effectiveness[self.current_template] = min(
+                    1.0, 
+                    self.ksm_effectiveness[self.current_template] + learning_rate * 0.5
+                )
+            # High success rate (>0.7): Slight increase in KSM influence
+            elif success_rate > 0.7:
+                self.ksm_effectiveness[self.current_template] = min(
+                    1.0, 
+                    self.ksm_effectiveness[self.current_template] + learning_rate * 0.2
+                )
+            # Low success rate (<0.3): Decrease KSM influence
+            elif success_rate < 0.3 and self.episode_count > 100:
+                self.ksm_effectiveness[self.current_template] = max(
+                    0.1, 
+                    self.ksm_effectiveness[self.current_template] - learning_rate
+                )
+            # Moderate success rate: Smaller adjustments
+            else:
+                # If success rate is improving, increase KSM slightly
+                if len(recent_history) >= 20:
+                    older_success = sum(recent_history[:-10]) / 10
+                    newer_success = sum(recent_history[-10:]) / 10
+                    
+                    if newer_success > older_success:
+                        self.ksm_effectiveness[self.current_template] = min(
+                            1.0, 
+                            self.ksm_effectiveness[self.current_template] + learning_rate * 0.1
+                        )
+                    elif newer_success < older_success:
+                        self.ksm_effectiveness[self.current_template] = max(
+                            0.1, 
+                            self.ksm_effectiveness[self.current_template] - learning_rate * 0.1
+                        )
+            
+            # Print current KSM effectiveness for debugging
+            print(f"Updated KSM effectiveness for template {self.current_template}: {self.ksm_effectiveness[self.current_template]:.2f}")
     
     def _manhattan_distance(self, pos1, pos2):
         """Calculate Manhattan distance between two positions."""
@@ -503,8 +497,10 @@ class DQNAgentEnhanced:
                 
             self.learn(success_bias=success_bias)
         
-        # Reset episode success if episode ended
+        # If episode ended, update KSM effectiveness and reset episode success
         if done:
+            if self.ksm_mode == "adaptive":
+                self.update_ksm_effectiveness(self.current_episode_success, self.total_reward if hasattr(self, 'total_reward') else reward)
             self.current_episode_success = False
     
     def act(self, state, eps=0.0):
@@ -588,7 +584,8 @@ class DQNAgentEnhanced:
             'policy_state_dict': self.policy_net.state_dict(),
             'target_state_dict': self.target_net.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
-            'loss_list': self.loss_list
+            'loss_list': self.loss_list,
+            'ksm_effectiveness': self.ksm_effectiveness
         }
         torch.save(checkpoint, filename)
     
@@ -599,3 +596,7 @@ class DQNAgentEnhanced:
         self.target_net.load_state_dict(checkpoint['target_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.loss_list = checkpoint['loss_list']
+        
+        # Load KSM effectiveness data if it exists
+        if 'ksm_effectiveness' in checkpoint:
+            self.ksm_effectiveness = checkpoint['ksm_effectiveness']
