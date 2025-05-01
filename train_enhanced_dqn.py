@@ -20,7 +20,7 @@ from dqn_agent_enhanced import DQNAgentEnhanced
 
 def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, eps_start=1.0, eps_end=0.005, eps_decay=0.998, 
                        render=False, checkpoint_dir='enhanced_results', eval_freq=100, eval_episodes=10,
-                       use_augmented_state=True, use_reward_shaping=True, use_key_selection_metric=False):
+                       use_augmented_state=True, use_reward_shaping=True, ksm_mode="off"):
     """Train DQN agent on Enhanced LIFO Corridors environment.
     
     Args:
@@ -36,12 +36,13 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
         eval_episodes (int): number of episodes to run during evaluation
         use_augmented_state (bool): whether to use augmented state representation
         use_reward_shaping (bool): whether to use reward shaping
-        use_key_selection_metric (bool): whether to use key selection metric (KSM)
+        ksm_mode (str): Key Selection Metric mode ("off", "standard", or "adaptive")
     """
     # Create directory for results
     augmented_str = "augmented" if use_augmented_state else "basic"
     shaping_str = "shaped" if use_reward_shaping else "raw"
-    ksm_str = "ksm" if use_key_selection_metric else "no_ksm"
+    ksm_str = ksm_mode if ksm_mode != "off" else "no_ksm"
+    
     output_dir = f"{checkpoint_dir}_{template_name}_{augmented_str}_{shaping_str}_{ksm_str}"
     os.makedirs(output_dir, exist_ok=True)
     
@@ -56,19 +57,19 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
     state, _ = env.reset()
     # Create a temporary agent to get the preprocessed state size
     temp_agent = DQNAgentEnhanced(0, 0, use_augmented_state=use_augmented_state, 
-                               use_key_selection_metric=use_key_selection_metric)
+                               ksm_mode=ksm_mode)
     state_size = len(temp_agent.preprocess_state(state))
     action_size = env.action_space.n
     
     print(f"Template: {template_name}, State size: {state_size}, Action size: {action_size}")
     print(f"State representation: {augmented_str}")
     print(f"Reward shaping: {shaping_str}")
-    print(f"Key Selection Metric (KSM): {'Enabled' if use_key_selection_metric else 'Disabled'}")
+    print(f"Key Selection Metric (KSM): {ksm_mode}")
     
     # Create agent
     agent = DQNAgentEnhanced(state_size=state_size, action_size=action_size, 
                           seed=0, use_augmented_state=use_augmented_state,
-                          use_key_selection_metric=use_key_selection_metric)
+                          ksm_mode=ksm_mode)
     
     # Initialize epsilon
     eps = eps_start
@@ -460,7 +461,9 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
     parser.add_argument('--basic-state', action='store_true', help='Use basic state representation (no augmentation)')
     parser.add_argument('--no-reward-shaping', action='store_true', help='Disable reward shaping')
-    parser.add_argument('--use-ksm', action='store_true', help='Enable Key Selection Metric feature')
+    parser.add_argument('--ksm-mode', type=str, default="off", 
+                       choices=["off", "standard", "adaptive"],
+                       help='Key Selection Metric mode')
     
     args = parser.parse_args()
     
@@ -474,19 +477,16 @@ if __name__ == "__main__":
     print(f"Training for {args.episodes} episodes")
     print(f"State representation: {'Basic' if args.basic_state else 'Augmented'}")
     print(f"Reward shaping: {'OFF' if args.no_reward_shaping else 'ON'}")
-    print(f"Key Selection Metric: {'ON' if args.use_ksm else 'OFF'}")
-    print(f"Results will be saved to: {args.output}_{args.template}_"
-          f"{'basic' if args.basic_state else 'augmented'}_"
-          f"{'raw' if args.no_reward_shaping else 'shaped'}_"
-          f"{'ksm' if args.use_ksm else 'no_ksm'}")
+    print(f"Key Selection Metric (KSM): {args.ksm_mode}")
     
+    # Run training with parameters
     scores, win_episodes, success_rates, wrong_key_attempts = train_enhanced_dqn(
         template_name=args.template,
         n_episodes=args.episodes, 
         render=args.render,
         checkpoint_dir=args.output,
         eval_freq=args.eval_freq,
-        use_augmented_state=not args.basic_state,  # Toggle based on command-line arg
-        use_reward_shaping=not args.no_reward_shaping,  # Toggle based on command-line arg
-        use_key_selection_metric=args.use_ksm  # Toggle based on command-line arg
+        use_augmented_state=not args.basic_state,
+        use_reward_shaping=not args.no_reward_shaping,
+        ksm_mode=args.ksm_mode
     )
