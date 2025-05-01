@@ -524,10 +524,34 @@ class DQNAgentEnhanced:
         if door0_key1 == float('inf'): door0_key1 = self._manhattan_distance(doors[0], keys[1]) * 1.5
         if door1_key0 == float('inf'): door1_key0 = self._manhattan_distance(doors[1], keys[0]) * 1.5
         
+        # Check for direct accessibility to keys
+        can_reach_key0 = self._bfs_path_exists(state_dict, agent_pos, keys[0], consider_doors=True)
+        can_reach_key1 = self._bfs_path_exists(state_dict, agent_pos, keys[1], consider_doors=True)
+        
         # 1. STRATEGY VIABILITY - check if both key collection orders are viable
-        # For a strategy to be viable, agent must be able to reach both keys and keys must reach their doors
-        key0_first_viable = (agent_key0 != float('inf')) and (key0_door0 != float('inf'))
-        key1_first_viable = (agent_key1 != float('inf')) and (key1_door1 != float('inf'))
+        # For Key0 first to be viable:
+        # - Agent must be able to reach Key0
+        # - Key0 must be able to reach Door0
+        # - After opening Door0, must be able to reach Key1 (either directly or through Door0)
+        # - Key1 must be able to reach Door1
+        key0_first_viable = (
+            can_reach_key0 and
+            (key0_door0 != float('inf')) and
+            (can_reach_key1 or door0_key1 != float('inf')) and
+            (key1_door1 != float('inf'))
+        )
+        
+        # For Key1 first to be viable:
+        # - Agent must be able to reach Key1
+        # - Key1 must be able to reach Door1
+        # - After opening Door1, must be able to reach Key0 (either directly or through Door1)
+        # - Key0 must be able to reach Door0
+        key1_first_viable = (
+            can_reach_key1 and
+            (key1_door1 != float('inf')) and
+            (can_reach_key0 or door1_key0 != float('inf')) and
+            (key0_door0 != float('inf'))
+        )
         
         # Calculate path costs for different strategies
         strategy1 = agent_key0 + key0_door0 + door0_key1 + key1_door1  # Key0 → Door0 → Key1 → Door1
@@ -579,10 +603,7 @@ class DQNAgentEnhanced:
             lifo_constraint -= 0.2  # Reduce LIFO importance
         
         # Check if one key is locked behind the other's door
-        can_reach_key1_from_start = self._bfs_path_exists(state_dict, agent_pos, keys[1], consider_doors=True)
-        can_reach_key0_from_start = self._bfs_path_exists(state_dict, agent_pos, keys[0], consider_doors=True)
-        
-        if not can_reach_key1_from_start or not can_reach_key0_from_start:
+        if not can_reach_key0 or not can_reach_key1:
             # One key is locked - reduces KSM importance (forced order)
             lifo_constraint = 0.1
         
@@ -627,6 +648,10 @@ class DQNAgentEnhanced:
         if key_status[0] == 1 or key_status[1] == 1:
             return 0.0
         
+        # Check direct accessibility to keys
+        can_reach_key0 = self._bfs_path_exists(state_dict, agent_pos, keys[0], consider_doors=True)
+        can_reach_key1 = self._bfs_path_exists(state_dict, agent_pos, keys[1], consider_doors=True)
+        
         # Calculate BFS distances between all relevant positions
         # Initial condition: no keys available
         agent_to_key0 = self._bfs_distance(state_dict, agent_pos, keys[0], consider_doors=True)
@@ -641,7 +666,7 @@ class DQNAgentEnhanced:
         door1_to_key0 = self._bfs_distance(state_dict, doors[1], keys[0], consider_doors=True, available_keys=[1])
         
         # Other relevant distances
-        key0_to_key1 = self._bfs_distance(state_dict, keys[0], keys[1], consider_doors=True)
+        key0_to_key1 = self._bfs_distance(state_dict, keys[0], keys[1], consider_doors=True, available_keys=[0])
         key0_to_door1 = self._bfs_distance(state_dict, keys[0], doors[1], consider_doors=True, available_keys=[0])
         key1_to_door0 = self._bfs_distance(state_dict, keys[1], doors[0], consider_doors=True, available_keys=[1])
         
@@ -664,6 +689,27 @@ class DQNAgentEnhanced:
             key0_to_door1 = self._manhattan_distance(keys[0], doors[1]) * 1.5
         if key1_to_door0 == float('inf'):
             key1_to_door0 = self._manhattan_distance(keys[1], doors[0]) * 1.5
+        
+        # Check viability of strategies
+        # For Key0 first to be viable:
+        key0_first_viable = (
+            can_reach_key0 and
+            (key0_to_door0 != float('inf')) and
+            (can_reach_key1 or door0_to_key1 != float('inf')) and
+            (key1_to_door1 != float('inf'))
+        )
+        
+        # For Key1 first to be viable:
+        key1_first_viable = (
+            can_reach_key1 and
+            (key1_to_door1 != float('inf')) and
+            (can_reach_key0 or door1_to_key0 != float('inf')) and
+            (key0_to_door0 != float('inf'))
+        )
+        
+        # If neither strategy is viable, something is wrong in the level design
+        if not key0_first_viable and not key1_first_viable:
+            return 0.0
         
         # Calculate costs for different collection strategies
         # Strategy 1: Key0 → Door0 → Key1 → Door1
@@ -688,33 +734,39 @@ class DQNAgentEnhanced:
         # Base score on which key to collect first (positive for Key0, negative for Key1)
         score = 0.0
         
-        # If keys are close to each other, use LIFO strategic thinking
-        if keys_are_close:
-            # Determine which door is closer to its key
-            if key0_to_door0 < key1_to_door1:
-                # Door0 is closer to Key0 than Door1 is to Key1
-                # With LIFO constraint, collect Key0 LAST (so Key1 first)
-                score -= 0.7
-            elif key1_to_door1 < key0_to_door0:
-                # Door1 is closer to Key1 than Door0 is to Key0
-                # With LIFO constraint, collect Key1 LAST (so Key0 first)
-                score += 0.7
-        
-        # Consider overall strategy costs
-        key0_first_cost = min(strategy1_cost, strategy3_cost)
-        key1_first_cost = min(strategy2_cost, strategy4_cost)
-        
-        # Adjust score based on strategy costs
-        if key0_first_cost < key1_first_cost:
-            diff = key1_first_cost - key0_first_cost
-            score += min(0.5, diff / 10)  # Scale by difference but cap at 0.5
-        elif key1_first_cost < key0_first_cost:
-            diff = key0_first_cost - key1_first_cost
-            score -= min(0.5, diff / 10)  # Scale by difference but cap at 0.5
-        
-        # If one strategy is significantly better, strengthen the signal
-        if abs(key0_first_cost - key1_first_cost) > 10:
-            score *= 1.5  # Amplify the signal for clearly superior strategies
+        # If only one strategy is viable, strongly bias towards it
+        if key0_first_viable and not key1_first_viable:
+            score = 0.9  # Strong preference for Key0 first
+        elif key1_first_viable and not key0_first_viable:
+            score = -0.9  # Strong preference for Key1 first
+        else:
+            # Both strategies are viable, use LIFO strategic thinking
+            if keys_are_close:
+                # Determine which door is closer to its key
+                if key0_to_door0 < key1_to_door1:
+                    # Door0 is closer to Key0 than Door1 is to Key1
+                    # With LIFO constraint, collect Key0 LAST (so Key1 first)
+                    score -= 0.7
+                elif key1_to_door1 < key0_to_door0:
+                    # Door1 is closer to Key1 than Door0 is to Key0
+                    # With LIFO constraint, collect Key1 LAST (so Key0 first)
+                    score += 0.7
+            
+            # Consider overall strategy costs
+            key0_first_cost = min(strategy1_cost, strategy3_cost) if key0_first_viable else float('inf')
+            key1_first_cost = min(strategy2_cost, strategy4_cost) if key1_first_viable else float('inf')
+            
+            # Adjust score based on strategy costs
+            if key0_first_cost < key1_first_cost:
+                diff = key1_first_cost - key0_first_cost
+                score += min(0.5, diff / 10)  # Scale by difference but cap at 0.5
+            elif key1_first_cost < key0_first_cost:
+                diff = key0_first_cost - key1_first_cost
+                score -= min(0.5, diff / 10)  # Scale by difference but cap at 0.5
+            
+            # If one strategy is significantly better, strengthen the signal
+            if abs(key0_first_cost - key1_first_cost) > 10:
+                score *= 1.5  # Amplify the signal for clearly superior strategies
         
         # Ensure the score is in [-1, 1] range
         return np.clip(score, -1.0, 1.0)
