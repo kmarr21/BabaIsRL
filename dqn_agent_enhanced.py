@@ -5,6 +5,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 import random
 from collections import deque, namedtuple
+import math
 
 from prioritized_replay_buffer import PrioritizedReplayBuffer, Transition
 
@@ -814,18 +815,303 @@ class DQNAgentEnhanced:
         return np.clip(score, -1.0, 1.0)
     
     def _calculate_adaptive_ksm(self, state_dict):
-        """Calculate adaptive KSM based on environment structure only."""
+        """Calculate adaptive KSM based on environment structure using enhanced mathematical transformation."""
         # Calculate the base KSM value
         base_ksm = self._calculate_key_selection_metric(state_dict)
         
         # Use cached environment factor or calculate it
         if self.env_ksm_factor is None:
-            self.env_ksm_factor = self.calculate_environment_ksm_factor(state_dict)
+            self.env_ksm_factor = self._calculate_enhanced_ksm_factor(state_dict)
         
         # Apply environment factor to the KSM value
         adaptive_ksm = base_ksm * self.env_ksm_factor
         
         return adaptive_ksm
+    
+    def _calculate_enhanced_ksm_factor(self, state_dict):
+        """Calculate enhanced KSM factor using improved mathematical transformation."""
+        # First calculate original KSM factor for components
+        original_ksm = self.calculate_environment_ksm_factor(state_dict)
+        
+        # Extract key components for enhanced calculation
+        agent_pos = state_dict['agent']
+        keys = state_dict['keys']
+        doors = state_dict['doors']
+        walls = []
+        
+        for wall in state_dict['walls']:
+            if wall[0] >= 0:  # Filter out -1 placeholders
+                walls.append((wall[0], wall[1]))
+        
+        # Get path metrics through analysis
+        path_metrics = self._analyze_path_metrics(state_dict)
+        
+        # Get components from original calculation
+        wall_count = len(walls)
+        
+        # Calculate BFS distances for strategy costs
+        agent_key0 = self._bfs_distance(state_dict, agent_pos, keys[0], consider_doors=True)
+        agent_key1 = self._bfs_distance(state_dict, agent_pos, keys[1], consider_doors=True)
+        key0_door0 = self._bfs_distance(state_dict, keys[0], doors[0], consider_doors=True, available_keys=[0])
+        key1_door1 = self._bfs_distance(state_dict, keys[1], doors[1], consider_doors=True, available_keys=[1])
+        door0_key1 = self._bfs_distance(state_dict, doors[0], keys[1], consider_doors=True, available_keys=[0])
+        door1_key0 = self._bfs_distance(state_dict, doors[1], keys[0], consider_doors=True, available_keys=[1])
+        
+        # Handle infinite distances
+        if agent_key0 == float('inf'): agent_key0 = self._manhattan_distance(agent_pos, keys[0]) * 1.5
+        if agent_key1 == float('inf'): agent_key1 = self._manhattan_distance(agent_pos, keys[1]) * 1.5
+        if key0_door0 == float('inf'): key0_door0 = self._manhattan_distance(keys[0], doors[0]) * 1.5
+        if key1_door1 == float('inf'): key1_door1 = self._manhattan_distance(keys[1], doors[1]) * 1.5
+        if door0_key1 == float('inf'): door0_key1 = self._manhattan_distance(doors[0], keys[1]) * 1.5
+        if door1_key0 == float('inf'): door1_key0 = self._manhattan_distance(doors[1], keys[0]) * 1.5
+        
+        # Calculate strategy costs
+        strategy1_cost = agent_key0 + key0_door0 + door0_key1 + key1_door1  # Key0 -> Door0 -> Key1 -> Door1
+        strategy2_cost = agent_key1 + key1_door1 + door1_key0 + key0_door0  # Key1 -> Door1 -> Key0 -> Door0
+        
+        # Check direct accessibility to keys
+        can_reach_key0 = self._bfs_path_exists(state_dict, agent_pos, keys[0], consider_doors=True)
+        can_reach_key1 = self._bfs_path_exists(state_dict, agent_pos, keys[1], consider_doors=True)
+        both_keys_accessible = can_reach_key0 and can_reach_key1
+        
+        # For Key0 first viability:
+        key0_first_viable = (
+            can_reach_key0 and
+            key0_door0 != float('inf') and
+            (
+                (both_keys_accessible and 
+                 (self._bfs_path_exists(state_dict, keys[1], doors[1], consider_doors=True, available_keys=[0, 1]) or
+                  self._bfs_path_exists(state_dict, doors[0], doors[1], consider_doors=True, available_keys=[0, 1]))) or
+                (not both_keys_accessible and
+                 door0_key1 != float('inf') and key1_door1 != float('inf'))
+            )
+        )
+        
+        # For Key1 first viability:
+        key1_first_viable = (
+            can_reach_key1 and
+            key1_door1 != float('inf') and
+            (
+                (both_keys_accessible and 
+                 (self._bfs_path_exists(state_dict, keys[0], doors[0], consider_doors=True, available_keys=[0, 1]) or
+                  self._bfs_path_exists(state_dict, doors[1], doors[0], consider_doors=True, available_keys=[0, 1]))) or
+                (not both_keys_accessible and
+                 door1_key0 != float('inf') and key0_door0 != float('inf'))
+            )
+        )
+        
+        # Calculate other metrics
+        path_complexity = 0.0
+        lifo_constraint = 0.0
+        
+        # Extract values from previously calculated KSM components
+        # This assumes the original KSM calculation prints these values
+        template_context = getattr(self, 'template_context', 'unknown')
+        
+        # Extract path complexity and LIFO constraint from KSM components
+        # These should be available from original KSM calculation
+        path_complexity = getattr(self, '_path_complexity', 0.3)  # Default if not found
+        lifo_constraint = getattr(self, '_lifo_constraint', 0.3)  # Default if not found
+        
+        # Calculate strategy importance
+        strategy_diff_pct = 0
+        if key0_first_viable and key1_first_viable and min(strategy1_cost, strategy2_cost) > 0:
+            strategy_diff_pct = abs(strategy1_cost - strategy2_cost) / min(strategy1_cost, strategy2_cost) * 100
+        
+        # Get path metrics
+        choke_points = path_metrics.get('num_choke_points', 0)
+        choke_traversals = path_metrics.get('total_choke_traversals', 0)
+        total_direction_changes = path_metrics.get('total_direction_changes', 0)
+        path_length_variance = path_metrics.get('path_length_variance', 0)
+        enemy_overlaps = path_metrics.get('total_enemy_overlaps', 0)
+        
+        # Implementation of the enhanced KSM calculation
+        # CRITICAL: Wall count as exponential factor
+        wall_exp = 0.2 * (1 - math.exp(-0.4 * (wall_count - 1.5)))
+        
+        # Path complexity component
+        path_exp = 0.05 * (1 - math.exp(-0.6 * path_complexity))
+        
+        # Choke points - more important for corridors_med
+        choke_exp = 0.15 * (1 - math.exp(-0.01 * (choke_points * choke_traversals)))
+        
+        # Direction changes weighted by variance
+        variance_weight = math.sqrt(path_length_variance) / 2.0
+        direction_exp = 0.15 * (1 - math.exp(-0.1 * total_direction_changes)) * variance_weight
+        
+        # Variance exponential - emphasized for zipper_med
+        variance_exp = 0.2 * (1 - math.exp(-0.15 * path_length_variance))
+        
+        # Strategy importance - emphasize meaningful choice
+        strategy_coef = 0.0
+        if key0_first_viable and key1_first_viable:
+            # Enhanced quadratic scaling for strategy differences
+            strategy_coef = 0.2 * math.pow(strategy_diff_pct / 100, 0.35)
+        else:
+            strategy_coef = 0.05  # Single viable strategy penalty
+        
+        # LIFO component
+        lifo_factor = 0.1 * lifo_constraint
+        
+        # Combined KSM with stronger separation
+        enhanced_ksm = wall_exp + path_exp + choke_exp + direction_exp + variance_exp + strategy_coef + lifo_factor
+        
+        # Store the enhanced value for future use
+        return enhanced_ksm
+    
+    def _analyze_path_metrics(self, state_dict):
+        """Analyze path characteristics for KSM enhancement."""
+        # Extract key components
+        agent_pos = state_dict['agent']
+        keys = state_dict['keys']
+        doors = state_dict['doors']
+        walls = []
+        
+        for wall in state_dict['walls']:
+            if wall[0] >= 0:  # Filter out -1 placeholders
+                walls.append((wall[0], wall[1]))
+        
+        # Dictionary to store path analysis metrics
+        path_metrics = {}
+        
+        # Calculate paths
+        key0_path = self._simplified_path(state_dict, agent_pos, keys[0], consider_doors=True)
+        key1_path = self._simplified_path(state_dict, agent_pos, keys[1], consider_doors=True)
+        key0_to_door0_path = self._simplified_path(state_dict, keys[0], doors[0], consider_doors=True, available_keys=[0])
+        key1_to_door1_path = self._simplified_path(state_dict, keys[1], doors[1], consider_doors=True, available_keys=[1])
+        key0_to_key1_path = self._simplified_path(state_dict, keys[0], keys[1], consider_doors=True, available_keys=[0])
+        door0_to_key1_path = self._simplified_path(state_dict, doors[0], keys[1], consider_doors=True, available_keys=[0])
+        door1_to_key0_path = self._simplified_path(state_dict, doors[1], keys[0], consider_doors=True, available_keys=[1])
+        
+        # All paths for analysis
+        all_paths = [
+            ("agent_to_key0", key0_path),
+            ("agent_to_key1", key1_path),
+            ("key0_to_door0", key0_to_door0_path),
+            ("key1_to_door1", key1_to_door1_path),
+            ("key0_to_key1", key0_to_key1_path),
+            ("door0_to_key1", door0_to_key1_path),
+            ("door1_to_key0", door1_to_key0_path)
+        ]
+        
+        # 1. Path lengths
+        path_lengths = {name: len(path) for name, path in all_paths if path}
+        path_metrics["path_lengths"] = path_lengths
+        
+        # 2. Calculate Manhattan distances for comparison
+        manhattan_distances = {}
+        for name, path in all_paths:
+            if not path:
+                continue
+            start = path[0]
+            end = path[-1]
+            manhattan = abs(start[0] - end[0]) + abs(start[1] - end[1])
+            manhattan_distances[name] = manhattan
+        
+        # 3. Direction changes (corners/turns in path)
+        direction_changes = {}
+        total_changes = 0
+        
+        for name, path in all_paths:
+            if not path or len(path) < 3:
+                continue
+                
+            changes = 0
+            for i in range(1, len(path) - 1):
+                prev_dir = (path[i][0] - path[i-1][0], path[i][1] - path[i-1][1])
+                next_dir = (path[i+1][0] - path[i][0], path[i+1][1] - path[i][1])
+                if prev_dir != next_dir:
+                    changes += 1
+            
+            direction_changes[name] = changes
+            total_changes += changes
+        
+        path_metrics["total_direction_changes"] = total_changes
+        
+        # 4. Identify choke points (spaces with limited access)
+        grid_size = 6
+        navigable_cells = set()
+        
+        # Add all grid cells
+        for x in range(grid_size):
+            for y in range(grid_size):
+                navigable_cells.add((x, y))
+        
+        # Remove walls
+        for wall in walls:
+            if tuple(wall) in navigable_cells:
+                navigable_cells.remove(tuple(wall))
+        
+        # Find choke points
+        choke_points = []
+        for cell in navigable_cells:
+            x, y = cell
+            # Check adjacent cells
+            adjacent = 0
+            for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
+                nx, ny = x + dx, y + dy
+                if (nx, ny) in navigable_cells:
+                    adjacent += 1
+            
+            # Cell with only 2 adjacent navigable cells is a choke point
+            if adjacent == 2:
+                choke_points.append(cell)
+        
+        path_metrics["num_choke_points"] = len(choke_points)
+        
+        # 5. Check which paths go through choke points
+        choke_point_traversals = {}
+        for name, path in all_paths:
+            if not path:
+                continue
+                
+            traversals = 0
+            for point in choke_points:
+                if point in path:
+                    traversals += 1
+            
+            choke_point_traversals[name] = traversals
+        
+        path_metrics["total_choke_traversals"] = sum(choke_point_traversals.values())
+        
+        # 6. Enemy path analysis
+        enemy_zones = set()
+        enemy_types = state_dict['enemy_types']
+        
+        for i in range(len(state_dict['enemies'])):
+            enemy_pos = state_dict['enemies'][i]
+            enemy_type = 0 if enemy_types[i] == 0 else 1  # 0 for horizontal, 1 for vertical
+            
+            # Get enemy patrol path
+            patrol_path = self._find_enemy_patrol_path(state_dict, enemy_pos, enemy_type)
+            for pos in patrol_path:
+                enemy_zones.add(pos)
+        
+        # 7. Check path overlap with enemy zones
+        enemy_overlaps = {}
+        total_enemy_overlaps = 0
+        
+        for name, path in all_paths:
+            if not path:
+                continue
+                
+            overlaps = 0
+            for point in path:
+                if point in enemy_zones:
+                    overlaps += 1
+            
+            enemy_overlaps[name] = overlaps
+            total_enemy_overlaps += overlaps
+        
+        path_metrics["total_enemy_overlaps"] = total_enemy_overlaps
+        
+        # 8. Path variance
+        if path_lengths:
+            path_metrics["path_length_variance"] = np.var(list(path_lengths.values()))
+        else:
+            path_metrics["path_length_variance"] = 0
+        
+        return path_metrics
     
     def _manhattan_distance(self, pos1, pos2):
         """Calculate Manhattan distance between two positions."""
