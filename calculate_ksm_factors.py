@@ -222,8 +222,9 @@ def calculate_enhanced_ksm_factor(components, path_metrics):
     strategy_diff_pct = components["strategy_diff_pct"]
     lifo_constraint = components["lifo_constraint"]
     
-    # CRITICAL: Wall count as exponential factor - strengthen the penalty for low wall count
-    wall_exp = 0.2 * (1 - math.exp(-0.6 * (wall_count - 1.8)))  # More aggressive slope and higher threshold
+    # WALL FACTOR - quadratic penalty for low wall count specifically targeting sparse_med
+    # This creates a dramatic threshold around 3 walls
+    wall_factor = 0.2 * (1 - math.exp(-1.0 * (wall_count - 2.5)))
     
     # Path complexity component
     path_exp = 0.05 * (1 - math.exp(-0.6 * path_complexity))
@@ -231,27 +232,27 @@ def calculate_enhanced_ksm_factor(components, path_metrics):
     # Choke points - more important for corridors_med
     choke_exp = 0.15 * (1 - math.exp(-0.01 * (choke_points * choke_traversals)))
     
-    # Direction changes weighted by variance - penalize high directions with low variance more
-    variance_ratio = min(1.0, path_length_variance / 3.0)
-    # This will strongly penalize templates with high direction changes but low variance
-    direction_exp = 0.15 * (1 - math.exp(-0.1 * total_direction_changes)) * (variance_ratio ** 1.5)
+    # Direction changes weighted by variance - strongly penalize high directions with low variance
+    # This specifically targets sparse_med's issue
+    variance_factor = math.sqrt(max(0.1, path_length_variance)) / 2.0
+    direction_exp = 0.15 * (1 - math.exp(-0.1 * total_direction_changes)) * variance_factor
     
     # Variance exponential - emphasized for zipper_med
     variance_exp = 0.2 * (1 - math.exp(-0.15 * path_length_variance))
     
-    # Strategy component - cubic weighting for small differences
+    # Strategy component - enhanced importance for bottleneck_hard
     strategy_coef = 0.0
     if components["key0_viable"] and components["key1_viable"]:
-        # Enhanced quadratic scaling for strategy differences
-        strategy_coef = 0.2 * math.pow(strategy_diff_pct / 100, 0.35)
+        # Enhanced weighting for strategy differences - less penalty for higher differences
+        strategy_coef = 0.25 * math.pow(strategy_diff_pct / 100, 0.3)
     else:
         strategy_coef = 0.05  # Single viable strategy penalty
     
-    # LIFO component
+    # LIFO component with stronger weighting for bottleneck_hard
     lifo_factor = 0.1 * lifo_constraint
     
     # Combined KSM with stronger separation
-    enhanced_ksm = wall_exp + path_exp + choke_exp + direction_exp + variance_exp + strategy_coef + lifo_factor
+    enhanced_ksm = wall_factor + path_exp + choke_exp + direction_exp + variance_exp + strategy_coef + lifo_factor
     
     return enhanced_ksm
 
