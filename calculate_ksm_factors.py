@@ -413,18 +413,45 @@ def calculate_ksm_factor_components(agent, state_dict, path_metrics):
     
     return components
 
-def calculate_enhanced_ksm_factor(components):
-    """Calculate the enhanced KSM factor using our mathematical transformation."""
-    # Sum all components
-    enhanced_ksm = (
-        components["path_exp"] + 
-        components["choke_exp"] + 
-        components["direction_exp"] + 
-        components["variance_exp"] + 
-        components["strat_factor"] + 
-        components["lifo_factor"] + 
-        components["wall_factor"]
-    )
+def calculate_enhanced_ksm_factor(components, path_metrics):
+    """Calculate the enhanced KSM factor using a mathematically principled transformation."""
+    # Get key metrics
+    path_complexity = components["path_complexity"]
+    choke_points = path_metrics["num_choke_points"]
+    choke_traversals = path_metrics["total_choke_traversals"]
+    total_direction_changes = path_metrics["total_direction_changes"]
+    path_length_variance = path_metrics["path_length_variance"]
+    enemy_overlaps = path_metrics["total_enemy_overlaps"]
+    wall_count = components["walls"]
+    strategy_diff_pct = components["strategy_diff_pct"]
+    lifo_constraint = components["lifo_constraint"]
+    
+    # Path complexity - quadratic weighting for wall count
+    wall_quadratic = 0.03 * ((wall_count - 2) ** 2) / 16  # Heavily penalizes low wall count
+    
+    # Other components with adjusted coefficients
+    path_exp = 0.08 * (1 - math.exp(-0.5 * path_complexity))
+    choke_exp = 0.08 * (1 - math.exp(-0.02 * (choke_points * choke_traversals)))
+    
+    # Direction weighted by path variance - punishes high directions with low variance
+    direction_variance_ratio = min(1.0, path_length_variance / 3.0)
+    direction_exp = 0.15 * (1 - math.exp(-0.12 * total_direction_changes)) * direction_variance_ratio
+    
+    # Variance exponential with higher coefficient
+    variance_exp = 0.25 * (1 - math.exp(-0.2 * path_length_variance))
+    
+    # Strategy component - cubic weighting for small differences
+    strategy_cube = 0
+    if components["key0_viable"] and components["key1_viable"]:
+        strategy_cube = 0.2 * (strategy_diff_pct / 100) ** 0.5  # Square root transforms smaller values more
+    else:
+        strategy_cube = 0.05
+    
+    # LIFO component
+    lifo_factor = 0.1 * lifo_constraint
+    
+    # Combined KSM factor with wall quadratic having big impact
+    enhanced_ksm = wall_quadratic + path_exp + choke_exp + direction_exp + variance_exp + strategy_cube + lifo_factor
     
     return enhanced_ksm
 
