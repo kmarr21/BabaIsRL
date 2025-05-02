@@ -6,6 +6,195 @@ import argparse
 from template_lifo_corridors import TemplateLIFOCorridorsEnv
 from dqn_agent_enhanced import DQNAgentEnhanced
 
+def analyze_paths(agent, state_dict):
+    """Analyze path characteristics for more detailed metrics."""
+    # Extract key components
+    agent_pos = state_dict['agent']
+    keys = state_dict['keys']
+    doors = state_dict['doors']
+    walls = []
+    
+    for wall in state_dict['walls']:
+        if wall[0] >= 0:  # Filter out -1 placeholders
+            walls.append((wall[0], wall[1]))
+    
+    # Dictionary to store path analysis metrics
+    path_metrics = {}
+    
+    # Calculate paths
+    key0_path = agent._simplified_path(state_dict, agent_pos, keys[0], consider_doors=True)
+    key1_path = agent._simplified_path(state_dict, agent_pos, keys[1], consider_doors=True)
+    key0_to_door0_path = agent._simplified_path(state_dict, keys[0], doors[0], consider_doors=True, available_keys=[0])
+    key1_to_door1_path = agent._simplified_path(state_dict, keys[1], doors[1], consider_doors=True, available_keys=[1])
+    key0_to_key1_path = agent._simplified_path(state_dict, keys[0], keys[1], consider_doors=True, available_keys=[0])
+    door0_to_key1_path = agent._simplified_path(state_dict, doors[0], keys[1], consider_doors=True, available_keys=[0])
+    door1_to_key0_path = agent._simplified_path(state_dict, doors[1], keys[0], consider_doors=True, available_keys=[1])
+    
+    # All paths for analysis
+    all_paths = [
+        ("agent_to_key0", key0_path),
+        ("agent_to_key1", key1_path),
+        ("key0_to_door0", key0_to_door0_path),
+        ("key1_to_door1", key1_to_door1_path),
+        ("key0_to_key1", key0_to_key1_path),
+        ("door0_to_key1", door0_to_key1_path),
+        ("door1_to_key0", door1_to_key0_path)
+    ]
+    
+    # 1. Path lengths
+    path_lengths = {name: len(path) for name, path in all_paths if path}
+    path_metrics["path_lengths"] = path_lengths
+    
+    # 2. Calculate Manhattan distances for comparison
+    manhattan_distances = {}
+    for name, path in all_paths:
+        if not path:
+            continue
+        start = path[0]
+        end = path[-1]
+        manhattan = abs(start[0] - end[0]) + abs(start[1] - end[1])
+        manhattan_distances[name] = manhattan
+    
+    path_metrics["manhattan_distances"] = manhattan_distances
+    
+    # 3. Path efficiency (actual/manhattan)
+    path_efficiency = {}
+    for name in path_lengths:
+        if name in manhattan_distances and manhattan_distances[name] > 0:
+            efficiency = path_lengths[name] / manhattan_distances[name]
+            path_efficiency[name] = efficiency
+    
+    path_metrics["path_efficiency"] = path_efficiency
+    avg_efficiency = np.mean(list(path_efficiency.values())) if path_efficiency else 0
+    path_metrics["avg_path_efficiency"] = avg_efficiency
+    
+    # 4. Direction changes (corners/turns in path)
+    direction_changes = {}
+    total_changes = 0
+    
+    for name, path in all_paths:
+        if not path or len(path) < 3:
+            continue
+            
+        changes = 0
+        for i in range(1, len(path) - 1):
+            prev_dir = (path[i][0] - path[i-1][0], path[i][1] - path[i-1][1])
+            next_dir = (path[i+1][0] - path[i][0], path[i+1][1] - path[i][1])
+            if prev_dir != next_dir:
+                changes += 1
+        
+        direction_changes[name] = changes
+        total_changes += changes
+    
+    path_metrics["direction_changes"] = direction_changes
+    path_metrics["total_direction_changes"] = total_changes
+    
+    # 5. Identify choke points (spaces with limited access)
+    # A choke point is a cell with only 2 adjacent navigable cells
+    grid_size = 6
+    navigable_cells = set()
+    
+    # Add all grid cells
+    for x in range(grid_size):
+        for y in range(grid_size):
+            navigable_cells.add((x, y))
+    
+    # Remove walls
+    for wall in walls:
+        if tuple(wall) in navigable_cells:
+            navigable_cells.remove(tuple(wall))
+    
+    # Find choke points
+    choke_points = []
+    for cell in navigable_cells:
+        x, y = cell
+        # Check adjacent cells
+        adjacent = 0
+        for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
+            nx, ny = x + dx, y + dy
+            if (nx, ny) in navigable_cells:
+                adjacent += 1
+        
+        # Cell with only 2 adjacent navigable cells is a choke point
+        if adjacent == 2:
+            choke_points.append(cell)
+    
+    path_metrics["choke_points"] = choke_points
+    path_metrics["num_choke_points"] = len(choke_points)
+    
+    # 6. Check which paths go through choke points
+    choke_point_traversals = {}
+    for name, path in all_paths:
+        if not path:
+            continue
+            
+        traversals = 0
+        for point in choke_points:
+            if point in path:
+                traversals += 1
+        
+        choke_point_traversals[name] = traversals
+    
+    path_metrics["choke_point_traversals"] = choke_point_traversals
+    path_metrics["total_choke_traversals"] = sum(choke_point_traversals.values())
+    
+    # 7. Enemy path analysis
+    enemy_zones = set()
+    for i, enemy_type in enumerate(state_dict['enemies']['types']):
+        enemy_pos = state_dict['enemies']['positions'][i]
+        
+        # Get enemy patrol path
+        patrol_path = agent._find_enemy_patrol_path(state_dict, enemy_pos, 0 if enemy_type == 'horizontal' else 1)
+        for pos in patrol_path:
+            enemy_zones.add(pos)
+    
+    path_metrics["enemy_zones"] = enemy_zones
+    
+    # 8. Check path overlap with enemy zones
+    enemy_overlaps = {}
+    for name, path in all_paths:
+        if not path:
+            continue
+            
+        overlaps = 0
+        for point in path:
+            if point in enemy_zones:
+                overlaps += 1
+        
+        enemy_overlaps[name] = overlaps
+    
+    path_metrics["enemy_overlaps"] = enemy_overlaps
+    path_metrics["total_enemy_overlaps"] = sum(enemy_overlaps.values())
+    
+    # 9. Check for backtracking (revisiting cells)
+    backtracking = {}
+    for name, path in all_paths:
+        if not path:
+            continue
+            
+        # Count cells that appear multiple times in path
+        visited = set()
+        revisits = 0
+        
+        for point in path:
+            if point in visited:
+                revisits += 1
+            else:
+                visited.add(point)
+        
+        backtracking[name] = revisits
+    
+    path_metrics["backtracking"] = backtracking
+    path_metrics["total_backtracking"] = sum(backtracking.values())
+    
+    # 10. Path variance
+    if path_lengths:
+        path_metrics["path_length_variance"] = np.var(list(path_lengths.values()))
+    else:
+        path_metrics["path_length_variance"] = 0
+    
+    return path_metrics
+
 def calculate_ksm_for_all_templates():
     """Calculate and display the KSM factor for all environment templates."""
     # List of all available templates
@@ -37,6 +226,9 @@ def calculate_ksm_for_all_templates():
         
         # Set template context for logging
         agent.set_template_context(template_name)
+        
+        # Calculate detailed path metrics
+        path_metrics = analyze_paths(agent, state)
         
         # Calculate the KSM factor (capture output for parsing)
         import io
@@ -135,7 +327,8 @@ def calculate_ksm_for_all_templates():
             "key0_viable": key0_viable,
             "key1_viable": key1_viable,
             "strategy1_cost": strategy1_cost,
-            "strategy2_cost": strategy2_cost
+            "strategy2_cost": strategy2_cost,
+            "path_metrics": path_metrics
         }
         
         # Display in table format
@@ -165,7 +358,15 @@ def calculate_ksm_for_all_templates():
     
     print("\nDetailed Path Analysis:")
     for template, values in results.items():
-        print(f"{template:<15} - Wall density: {values['wall_density']:.2f}, Detour ratio: {values['detour_ratio']:.2f}, KDK: {values['kdk_complexity']:.2f}")
+        path_metrics = values["path_metrics"]
+        print(f"\n{template} Path Metrics:")
+        print(f"  Choke Points: {path_metrics['num_choke_points']}")
+        print(f"  Choke Point Traversals: {path_metrics['total_choke_traversals']}")
+        print(f"  Direction Changes: {path_metrics['total_direction_changes']}")
+        print(f"  Enemy Zone Overlaps: {path_metrics['total_enemy_overlaps']}")
+        print(f"  Backtracking Instances: {path_metrics['total_backtracking']}")
+        print(f"  Average Path Efficiency: {path_metrics['avg_path_efficiency']:.2f}")
+        print(f"  Path Length Variance: {path_metrics['path_length_variance']:.2f}")
     
     print("\nStrategy Viability Analysis:")
     for template, values in results.items():
