@@ -359,30 +359,6 @@ def calculate_ksm_factor_components(agent, state_dict, path_metrics):
     # Ensure LIFO constraint is in [0,1] range
     lifo_constraint = max(0.0, min(1.0, lifo_constraint))
     
-    # Apply our mathematical transformation for enhanced KSM
-    wall_count = len(walls)
-    strategy_diff_pct = 0
-    if key0_first_viable and key1_first_viable and min(strategy1_cost, strategy2_cost) > 0:
-        strategy_diff_pct = abs(strategy1_cost - strategy2_cost) / min(strategy1_cost, strategy2_cost) * 100
-    
-    # Calculate each component separately
-    path_exp = 0.1 * (1 - math.exp(-0.5 * path_complexity))
-    choke_exp = 0.1 * (1 - math.exp(-0.015 * (choke_points * choke_traversals)))
-    direction_exp = 0.15 * (1 - math.exp(-0.15 * total_direction_changes)) * (enemy_overlaps / 10.0 + 0.5)
-    variance_exp = 0.3 * (1 - math.exp(-0.2 * path_length_variance))
-    
-    # Strategy component - adjusted to more strongly value strategic choice
-    if key0_first_viable and key1_first_viable:
-        strat_factor = 0.3 * math.log10(1 + strategy_diff_pct/8)
-    else:
-        strat_factor = 0.05
-    
-    # LIFO component
-    lifo_factor = 0.1 / (1 + math.exp(-5 * (lifo_constraint - 0.3)))
-    
-    # Wall factor using logarithm
-    wall_factor = 0.05 * math.log10(1 + wall_count)
-    
     # Return all components and related metrics
     components = {
         "path_complexity": path_complexity,
@@ -395,19 +371,8 @@ def calculate_ksm_factor_components(agent, state_dict, path_metrics):
         "key1_viable": key1_first_viable,
         "strategy1_cost": strategy1_cost,
         "strategy2_cost": strategy2_cost,
-        "strategy_diff_pct": strategy_diff_pct,
-        "walls": wall_count,
-        
-        # Enhanced KSM components
-        "path_exp": path_exp,
-        "choke_exp": choke_exp, 
-        "direction_exp": direction_exp,
-        "variance_exp": variance_exp,
-        "strat_factor": strat_factor,
-        "lifo_factor": lifo_factor,
-        "wall_factor": wall_factor,
-        
-        # Original KSM factor
+        "strategy_diff_pct": strategy_diff_pct if key0_first_viable and key1_first_viable and min(strategy1_cost, strategy2_cost) > 0 else 0,
+        "walls": len(walls),
         "original_ksm": ksm_factor
     }
     
@@ -494,7 +459,7 @@ def calculate_ksm_for_all_templates():
         components = calculate_ksm_factor_components(agent, state, path_metrics)
         
         # Calculate enhanced KSM factor
-        enhanced_ksm = calculate_enhanced_ksm_factor(components)
+        enhanced_ksm = calculate_enhanced_ksm_factor(components, path_metrics)
         
         # Store results
         results[template_name] = {
@@ -522,14 +487,43 @@ def calculate_ksm_for_all_templates():
     print("\n===== Component Breakdown by Template =====\n")
     for template, values in results.items():
         components = values["components"]
+        path_metrics = values["path_metrics"]
+        
+        # Calculate the individual components for display
+        path_complexity = components["path_complexity"]
+        choke_points = path_metrics["num_choke_points"]
+        choke_traversals = path_metrics["total_choke_traversals"]
+        total_direction_changes = path_metrics["total_direction_changes"]
+        path_length_variance = path_metrics["path_length_variance"]
+        enemy_overlaps = path_metrics["total_enemy_overlaps"]
+        wall_count = components["walls"]
+        strategy_diff_pct = components["strategy_diff_pct"]
+        lifo_constraint = components["lifo_constraint"]
+        
+        # Calculate each component
+        wall_quadratic = 0.03 * ((wall_count - 2) ** 2) / 16
+        path_exp = 0.08 * (1 - math.exp(-0.5 * path_complexity))
+        choke_exp = 0.08 * (1 - math.exp(-0.02 * (choke_points * choke_traversals)))
+        direction_variance_ratio = min(1.0, path_length_variance / 3.0)
+        direction_exp = 0.15 * (1 - math.exp(-0.12 * total_direction_changes)) * direction_variance_ratio
+        variance_exp = 0.25 * (1 - math.exp(-0.2 * path_length_variance))
+        
+        strategy_cube = 0
+        if components["key0_viable"] and components["key1_viable"]:
+            strategy_cube = 0.2 * (strategy_diff_pct / 100) ** 0.5
+        else:
+            strategy_cube = 0.05
+            
+        lifo_factor = 0.1 * lifo_constraint
+        
         print(f"\n{template} Component Breakdown:")
-        print(f"  Path exponential:       {components['path_exp']:.2f}")
-        print(f"  Choke exponential:      {components['choke_exp']:.2f}")
-        print(f"  Direction exponential:  {components['direction_exp']:.2f}")
-        print(f"  Variance exponential:   {components['variance_exp']:.2f}")
-        print(f"  Strategy factor:        {components['strat_factor']:.2f}")
-        print(f"  LIFO factor:            {components['lifo_factor']:.2f}")
-        print(f"  Wall factor:            {components['wall_factor']:.2f}")
+        print(f"  Wall quadratic:         {wall_quadratic:.2f}")
+        print(f"  Path exponential:       {path_exp:.2f}")
+        print(f"  Choke exponential:      {choke_exp:.2f}")
+        print(f"  Direction exponential:  {direction_exp:.2f}")
+        print(f"  Variance exponential:   {variance_exp:.2f}")
+        print(f"  Strategy factor:        {strategy_cube:.2f}")
+        print(f"  LIFO factor:            {lifo_factor:.2f}")
         print(f"  TOTAL Enhanced KSM:     {values['enhanced_ksm']:.2f}")
         print(f"  Original KSM:           {components['original_ksm']:.2f}")
     
