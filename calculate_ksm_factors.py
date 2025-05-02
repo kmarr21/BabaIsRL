@@ -140,11 +140,16 @@ def analyze_paths(agent, state_dict):
     
     # 7. Enemy path analysis
     enemy_zones = set()
-    for i, enemy_type in enumerate(state_dict['enemies']['types']):
-        enemy_pos = state_dict['enemies']['positions'][i]
+    # Fix for accessing enemy types - we need to get them correctly from the state_dict
+    enemy_types = state_dict['enemy_types']  # This is directly in state_dict, not in 'enemies'
+    
+    for i in range(len(state_dict['enemies'])):
+        enemy_pos = state_dict['enemies'][i]
+        # Convert numeric type to string type expected by _find_enemy_patrol_path
+        enemy_type_str = 'vertical' if enemy_types[i] == 1 else 'horizontal'
         
         # Get enemy patrol path
-        patrol_path = agent._find_enemy_patrol_path(state_dict, enemy_pos, 0 if enemy_type == 'horizontal' else 1)
+        patrol_path = agent._find_enemy_patrol_path(state_dict, enemy_pos, 0 if enemy_type_str == 'horizontal' else 1)
         for pos in patrol_path:
             enemy_zones.add(pos)
     
