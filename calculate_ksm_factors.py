@@ -142,24 +142,30 @@ def analyze_paths(agent, state_dict):
     # 7. Enemy path analysis
     enemy_zones = set()
     # Fix for accessing enemy types - we need to get them correctly from the state_dict
-    enemy_types = state_dict['enemy_types']  # This is directly in state_dict, not in 'enemies'
+    enemy_types = state_dict['enemy_types'] if 'enemy_types' in state_dict else []
     
-    for i in range(len(state_dict['enemies'])):
-        enemy_pos = state_dict['enemies'][i]
-        # Convert numeric type to string type expected by _find_enemy_patrol_path
-        enemy_type_str = 'vertical' if enemy_types[i] == 1 else 'horizontal'
-        
-        # Get enemy patrol path
-        patrol_path = agent._find_enemy_patrol_path(state_dict, enemy_pos, 0 if enemy_type_str == 'horizontal' else 1)
-        for pos in patrol_path:
-            enemy_zones.add(pos)
+    if 'enemy_types' in state_dict:
+        for i in range(len(state_dict['enemies'])):
+            enemy_pos = state_dict['enemies'][i]
+            enemy_type = enemy_types[i]
+            
+            # Get enemy patrol path
+            patrol_path = agent._find_enemy_patrol_path(state_dict, enemy_pos, 0 if enemy_type == 0 else 1)
+            for pos in patrol_path:
+                enemy_zones.add(pos)
+    elif 'enemies' in state_dict and isinstance(state_dict['enemies'], dict) and 'types' in state_dict['enemies']:
+        for i, enemy_type in enumerate(state_dict['enemies']['types']):
+            enemy_pos = state_dict['enemies']['positions'][i]
+            
+            # Get enemy patrol path
+            patrol_path = agent._find_enemy_patrol_path(state_dict, enemy_pos, 0 if enemy_type == 'horizontal' else 1)
+            for pos in patrol_path:
+                enemy_zones.add(pos)
     
     path_metrics["enemy_zones"] = enemy_zones
     
     # 8. Check path overlap with enemy zones
     enemy_overlaps = {}
-    total_enemy_overlaps = 0
-    
     for name, path in all_paths:
         if not path:
             continue
@@ -170,10 +176,9 @@ def analyze_paths(agent, state_dict):
                 overlaps += 1
         
         enemy_overlaps[name] = overlaps
-        total_enemy_overlaps += overlaps
     
     path_metrics["enemy_overlaps"] = enemy_overlaps
-    path_metrics["total_enemy_overlaps"] = total_enemy_overlaps
+    path_metrics["total_enemy_overlaps"] = sum(enemy_overlaps.values())
     
     # 9. Check for backtracking (revisiting cells)
     backtracking = {}
@@ -203,6 +208,52 @@ def analyze_paths(agent, state_dict):
         path_metrics["path_length_variance"] = 0
     
     return path_metrics
+
+def calculate_enhanced_ksm_factor(components, path_metrics):
+    """Calculate the enhanced KSM factor using a mathematically principled transformation."""
+    # Get key metrics
+    path_complexity = components["path_complexity"]
+    choke_points = path_metrics["num_choke_points"]
+    choke_traversals = path_metrics["total_choke_traversals"]
+    total_direction_changes = path_metrics["total_direction_changes"]
+    path_length_variance = path_metrics["path_length_variance"]
+    enemy_overlaps = path_metrics["total_enemy_overlaps"]
+    wall_count = components["walls"]
+    strategy_diff_pct = components["strategy_diff_pct"]
+    lifo_constraint = components["lifo_constraint"]
+    
+    # CRITICAL: Wall count as exponential factor - strengthen the penalty for low wall count
+    wall_exp = 0.2 * (1 - math.exp(-0.6 * (wall_count - 1.8)))  # More aggressive slope and higher threshold
+    
+    # Path complexity component
+    path_exp = 0.05 * (1 - math.exp(-0.6 * path_complexity))
+    
+    # Choke points - more important for corridors_med
+    choke_exp = 0.15 * (1 - math.exp(-0.01 * (choke_points * choke_traversals)))
+    
+    # Direction changes weighted by variance - penalize high directions with low variance more
+    variance_ratio = min(1.0, path_length_variance / 3.0)
+    # This will strongly penalize templates with high direction changes but low variance
+    direction_exp = 0.15 * (1 - math.exp(-0.1 * total_direction_changes)) * (variance_ratio ** 1.5)
+    
+    # Variance exponential - emphasized for zipper_med
+    variance_exp = 0.2 * (1 - math.exp(-0.15 * path_length_variance))
+    
+    # Strategy component - cubic weighting for small differences
+    strategy_coef = 0.0
+    if components["key0_viable"] and components["key1_viable"]:
+        # Enhanced quadratic scaling for strategy differences
+        strategy_coef = 0.2 * math.pow(strategy_diff_pct / 100, 0.35)
+    else:
+        strategy_coef = 0.05  # Single viable strategy penalty
+    
+    # LIFO component
+    lifo_factor = 0.1 * lifo_constraint
+    
+    # Combined KSM with stronger separation
+    enhanced_ksm = wall_exp + path_exp + choke_exp + direction_exp + variance_exp + strategy_coef + lifo_factor
+    
+    return enhanced_ksm
 
 def calculate_ksm_factor_components(agent, state_dict, path_metrics):
     """Calculate the components of the KSM factor using the mathematical transformation."""
@@ -378,53 +429,6 @@ def calculate_ksm_factor_components(agent, state_dict, path_metrics):
     
     return components
 
-def calculate_enhanced_ksm_factor(components, path_metrics):
-    """Calculate the enhanced KSM factor using a mathematically principled transformation."""
-    # Get key metrics
-    path_complexity = components["path_complexity"]
-    choke_points = path_metrics["num_choke_points"]
-    choke_traversals = path_metrics["total_choke_traversals"]
-    total_direction_changes = path_metrics["total_direction_changes"]
-    path_length_variance = path_metrics["path_length_variance"]
-    enemy_overlaps = path_metrics["total_enemy_overlaps"]
-    wall_count = components["walls"]
-    strategy_diff_pct = components["strategy_diff_pct"]
-    lifo_constraint = components["lifo_constraint"]
-    
-    # CRITICAL: Wall count as exponential factor
-    # This creates a dramatic difference between 2 walls and higher counts
-    wall_exp = 0.2 * (1 - math.exp(-0.4 * (wall_count - 1.5)))
-    
-    # Path complexity component
-    path_exp = 0.05 * (1 - math.exp(-0.6 * path_complexity))
-    
-    # Choke points - more important for corridors_med
-    choke_exp = 0.15 * (1 - math.exp(-0.01 * (choke_points * choke_traversals)))
-    
-    # Direction changes weighted by variance
-    # This heavily penalizes templates with high directions but low variance (sparse_med)
-    variance_weight = math.sqrt(path_length_variance) / 2.0
-    direction_exp = 0.15 * (1 - math.exp(-0.1 * total_direction_changes)) * variance_weight
-    
-    # Variance exponential - emphasized for zipper_med
-    variance_exp = 0.2 * (1 - math.exp(-0.15 * path_length_variance))
-    
-    # Strategy importance - emphasize meaningful choice
-    strategy_coef = 0.0
-    if components["key0_viable"] and components["key1_viable"]:
-        # Enhanced quadratic scaling for strategy differences
-        strategy_coef = 0.2 * math.pow(strategy_diff_pct / 100, 0.35)
-    else:
-        strategy_coef = 0.05  # Single viable strategy penalty
-    
-    # LIFO component
-    lifo_factor = 0.1 * lifo_constraint
-    
-    # Combined KSM with stronger separation
-    enhanced_ksm = wall_exp + path_exp + choke_exp + direction_exp + variance_exp + strategy_coef + lifo_factor
-    
-    return enhanced_ksm
-
 def calculate_ksm_for_all_templates():
     """Calculate and display the KSM factor for all environment templates."""
     # List of all available templates
@@ -506,28 +510,28 @@ def calculate_ksm_for_all_templates():
         lifo_constraint = components["lifo_constraint"]
         
         # Calculate each component
-        wall_quadratic = 0.03 * ((wall_count - 2) ** 2) / 16
-        path_exp = 0.08 * (1 - math.exp(-0.5 * path_complexity))
-        choke_exp = 0.08 * (1 - math.exp(-0.02 * (choke_points * choke_traversals)))
-        direction_variance_ratio = min(1.0, path_length_variance / 3.0)
-        direction_exp = 0.15 * (1 - math.exp(-0.12 * total_direction_changes)) * direction_variance_ratio
-        variance_exp = 0.25 * (1 - math.exp(-0.2 * path_length_variance))
+        wall_exp = 0.2 * (1 - math.exp(-0.6 * (wall_count - 1.8)))
+        path_exp = 0.05 * (1 - math.exp(-0.6 * path_complexity))
+        choke_exp = 0.15 * (1 - math.exp(-0.01 * (choke_points * choke_traversals)))
+        variance_ratio = min(1.0, path_length_variance / 3.0)
+        direction_exp = 0.15 * (1 - math.exp(-0.1 * total_direction_changes)) * (variance_ratio ** 1.5)
+        variance_exp = 0.2 * (1 - math.exp(-0.15 * path_length_variance))
         
-        strategy_cube = 0
+        strategy_coef = 0
         if components["key0_viable"] and components["key1_viable"]:
-            strategy_cube = 0.2 * (strategy_diff_pct / 100) ** 0.5
+            strategy_coef = 0.2 * math.pow(strategy_diff_pct / 100, 0.35)
         else:
-            strategy_cube = 0.05
+            strategy_coef = 0.05
             
         lifo_factor = 0.1 * lifo_constraint
         
         print(f"\n{template} Component Breakdown:")
-        print(f"  Wall quadratic:         {wall_quadratic:.2f}")
+        print(f"  Wall exponential:       {wall_exp:.2f}")
         print(f"  Path exponential:       {path_exp:.2f}")
         print(f"  Choke exponential:      {choke_exp:.2f}")
         print(f"  Direction exponential:  {direction_exp:.2f}")
         print(f"  Variance exponential:   {variance_exp:.2f}")
-        print(f"  Strategy factor:        {strategy_cube:.2f}")
+        print(f"  Strategy factor:        {strategy_coef:.2f}")
         print(f"  LIFO factor:            {lifo_factor:.2f}")
         print(f"  TOTAL Enhanced KSM:     {values['enhanced_ksm']:.2f}")
         print(f"  Original KSM:           {components['original_ksm']:.2f}")
