@@ -391,32 +391,37 @@ def calculate_enhanced_ksm_factor(components, path_metrics):
     strategy_diff_pct = components["strategy_diff_pct"]
     lifo_constraint = components["lifo_constraint"]
     
-    # Path complexity - quadratic weighting for wall count
-    wall_quadratic = 0.03 * ((wall_count - 2) ** 2) / 16  # Heavily penalizes low wall count
+    # CRITICAL: Wall count as exponential factor
+    # This creates a dramatic difference between 2 walls and higher counts
+    wall_exp = 0.2 * (1 - math.exp(-0.4 * (wall_count - 1.5)))
     
-    # Other components with adjusted coefficients
-    path_exp = 0.08 * (1 - math.exp(-0.5 * path_complexity))
-    choke_exp = 0.08 * (1 - math.exp(-0.02 * (choke_points * choke_traversals)))
+    # Path complexity component
+    path_exp = 0.05 * (1 - math.exp(-0.6 * path_complexity))
     
-    # Direction weighted by path variance - punishes high directions with low variance
-    direction_variance_ratio = min(1.0, path_length_variance / 3.0)
-    direction_exp = 0.15 * (1 - math.exp(-0.12 * total_direction_changes)) * direction_variance_ratio
+    # Choke points - more important for corridors_med
+    choke_exp = 0.15 * (1 - math.exp(-0.01 * (choke_points * choke_traversals)))
     
-    # Variance exponential with higher coefficient
-    variance_exp = 0.25 * (1 - math.exp(-0.2 * path_length_variance))
+    # Direction changes weighted by variance
+    # This heavily penalizes templates with high directions but low variance (sparse_med)
+    variance_weight = math.sqrt(path_length_variance) / 2.0
+    direction_exp = 0.15 * (1 - math.exp(-0.1 * total_direction_changes)) * variance_weight
     
-    # Strategy component - cubic weighting for small differences
-    strategy_cube = 0
+    # Variance exponential - emphasized for zipper_med
+    variance_exp = 0.2 * (1 - math.exp(-0.15 * path_length_variance))
+    
+    # Strategy importance - emphasize meaningful choice
+    strategy_coef = 0.0
     if components["key0_viable"] and components["key1_viable"]:
-        strategy_cube = 0.2 * (strategy_diff_pct / 100) ** 0.5  # Square root transforms smaller values more
+        # Enhanced quadratic scaling for strategy differences
+        strategy_coef = 0.2 * math.pow(strategy_diff_pct / 100, 0.35)
     else:
-        strategy_cube = 0.05
+        strategy_coef = 0.05  # Single viable strategy penalty
     
     # LIFO component
     lifo_factor = 0.1 * lifo_constraint
     
-    # Combined KSM factor with wall quadratic having big impact
-    enhanced_ksm = wall_quadratic + path_exp + choke_exp + direction_exp + variance_exp + strategy_cube + lifo_factor
+    # Combined KSM with stronger separation
+    enhanced_ksm = wall_exp + path_exp + choke_exp + direction_exp + variance_exp + strategy_coef + lifo_factor
     
     return enhanced_ksm
 
