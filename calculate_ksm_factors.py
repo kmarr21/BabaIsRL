@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from collections import deque
 import argparse
+import math
 
 from template_lifo_corridors import TemplateLIFOCorridorsEnv
 from dqn_agent_enhanced import DQNAgentEnhanced
@@ -157,6 +158,8 @@ def analyze_paths(agent, state_dict):
     
     # 8. Check path overlap with enemy zones
     enemy_overlaps = {}
+    total_enemy_overlaps = 0
+    
     for name, path in all_paths:
         if not path:
             continue
@@ -167,9 +170,10 @@ def analyze_paths(agent, state_dict):
                 overlaps += 1
         
         enemy_overlaps[name] = overlaps
+        total_enemy_overlaps += overlaps
     
     path_metrics["enemy_overlaps"] = enemy_overlaps
-    path_metrics["total_enemy_overlaps"] = sum(enemy_overlaps.values())
+    path_metrics["total_enemy_overlaps"] = total_enemy_overlaps
     
     # 9. Check for backtracking (revisiting cells)
     backtracking = {}
@@ -200,6 +204,230 @@ def analyze_paths(agent, state_dict):
     
     return path_metrics
 
+def calculate_ksm_factor_components(agent, state_dict, path_metrics):
+    """Calculate the components of the KSM factor using the mathematical transformation."""
+    # Extract key components
+    agent_pos = state_dict['agent']
+    keys = state_dict['keys']
+    doors = state_dict['doors']
+    walls = []
+    
+    for wall in state_dict['walls']:
+        if wall[0] >= 0:  # Filter out -1 placeholders
+            walls.append((wall[0], wall[1]))
+    
+    # Get key metrics from path analysis
+    choke_points = path_metrics['num_choke_points']
+    choke_traversals = path_metrics['total_choke_traversals']
+    total_direction_changes = path_metrics['total_direction_changes']
+    path_length_variance = path_metrics['path_length_variance']
+    enemy_overlaps = path_metrics['total_enemy_overlaps']
+    
+    # Get path complexity from agent's calculation
+    ksm_factor = agent.calculate_environment_ksm_factor(state_dict)
+    
+    # Extract the components from the agent's method
+    # These are printed during the agent's calculation
+    path_complexity = 0.0
+    strategy_importance = 0.0
+    lifo_constraint = 0.0
+    key0_first_viable = False
+    key1_first_viable = False
+    strategy1_cost = 0.0
+    strategy2_cost = 0.0
+    
+    # Calculate BFS distances for strategy costs
+    agent_key0 = agent._bfs_distance(state_dict, agent_pos, keys[0], consider_doors=True)
+    agent_key1 = agent._bfs_distance(state_dict, agent_pos, keys[1], consider_doors=True)
+    key0_door0 = agent._bfs_distance(state_dict, keys[0], doors[0], consider_doors=True, available_keys=[0])
+    key1_door1 = agent._bfs_distance(state_dict, keys[1], doors[1], consider_doors=True, available_keys=[1])
+    door0_key1 = agent._bfs_distance(state_dict, doors[0], keys[1], consider_doors=True, available_keys=[0])
+    door1_key0 = agent._bfs_distance(state_dict, doors[1], keys[0], consider_doors=True, available_keys=[1])
+    
+    # Handle infinite distances with Manhattan estimates
+    if agent_key0 == float('inf'): agent_key0 = agent._manhattan_distance(agent_pos, keys[0]) * 1.5
+    if agent_key1 == float('inf'): agent_key1 = agent._manhattan_distance(agent_pos, keys[1]) * 1.5
+    if key0_door0 == float('inf'): key0_door0 = agent._manhattan_distance(keys[0], doors[0]) * 1.5
+    if key1_door1 == float('inf'): key1_door1 = agent._manhattan_distance(keys[1], doors[1]) * 1.5
+    if door0_key1 == float('inf'): door0_key1 = agent._manhattan_distance(doors[0], keys[1]) * 1.5
+    if door1_key0 == float('inf'): door1_key0 = agent._manhattan_distance(doors[1], keys[0]) * 1.5
+    
+    # Calculate strategy costs
+    strategy1_cost = agent_key0 + key0_door0 + door0_key1 + key1_door1  # Key0 -> Door0 -> Key1 -> Door1
+    strategy2_cost = agent_key1 + key1_door1 + door1_key0 + key0_door0  # Key1 -> Door1 -> Key0 -> Door0
+    
+    # Check direct accessibility to keys
+    can_reach_key0 = agent._bfs_path_exists(state_dict, agent_pos, keys[0], consider_doors=True)
+    can_reach_key1 = agent._bfs_path_exists(state_dict, agent_pos, keys[1], consider_doors=True)
+    both_keys_accessible = can_reach_key0 and can_reach_key1
+    
+    # For Key0 first viability:
+    key0_first_viable = (
+        can_reach_key0 and
+        key0_door0 != float('inf') and
+        (
+            (both_keys_accessible and 
+             (agent._bfs_path_exists(state_dict, keys[1], doors[1], consider_doors=True, available_keys=[0, 1]) or
+              agent._bfs_path_exists(state_dict, doors[0], doors[1], consider_doors=True, available_keys=[0, 1]))) or
+            (not both_keys_accessible and
+             door0_key1 != float('inf') and key1_door1 != float('inf'))
+        )
+    )
+    
+    # For Key1 first viability:
+    key1_first_viable = (
+        can_reach_key1 and
+        key1_door1 != float('inf') and
+        (
+            (both_keys_accessible and 
+             (agent._bfs_path_exists(state_dict, keys[0], doors[0], consider_doors=True, available_keys=[0, 1]) or
+              agent._bfs_path_exists(state_dict, doors[1], doors[0], consider_doors=True, available_keys=[0, 1]))) or
+            (not both_keys_accessible and
+             door1_key0 != float('inf') and key0_door0 != float('inf'))
+        )
+    )
+    
+    # Calculate wall density
+    wall_density = len(walls) / 12.0  # Normalize by a value that gives good spread
+    
+    # Calculate detour ratio
+    direct_paths = (agent._manhattan_distance(agent_pos, keys[0]) +
+                   agent._manhattan_distance(agent_pos, keys[1]) +
+                   agent._manhattan_distance(keys[0], doors[0]) +
+                   agent._manhattan_distance(keys[1], doors[1]) +
+                   agent._manhattan_distance(keys[0], keys[1]))
+    
+    actual_paths = (agent_key0 + agent_key1 + key0_door0 + key1_door1 +
+                   agent._bfs_distance(state_dict, keys[0], keys[1], consider_doors=True, available_keys=[0]))
+    
+    if direct_paths > 0:
+        detour_ratio = (actual_paths - direct_paths) / direct_paths
+    else:
+        detour_ratio = 0.0
+        
+    # Calculate K-D-K sequence complexity
+    key_door_key_complexity = 0.0
+    
+    if not both_keys_accessible:
+        # If one key is behind a door, there's a dependency
+        key_door_key_complexity = 0.3
+    elif door0_key1 < agent_key1 or door1_key0 < agent_key0:
+        # If going through a door provides a shorter path to the other key
+        # This indicates interesting level design with dependencies
+        key_door_key_complexity = 0.2
+    
+    # Calculate Path complexity
+    path_complexity = min(1.0, (
+        0.4 * wall_density +
+        0.3 * detour_ratio + 
+        0.2 * key_door_key_complexity +
+        0.1 * min(1.0, enemy_overlaps / 10)
+    ))
+    
+    # Calculate strategy importance
+    if key0_first_viable and key1_first_viable:
+        # Both strategies are viable, compare costs
+        if min(strategy1_cost, strategy2_cost) > 0:
+            # Calculate cost difference ratio
+            strategy_diff_pct = abs(strategy1_cost - strategy2_cost) / min(strategy1_cost, strategy2_cost) * 100
+            strategy_importance = min(1.0, strategy_diff_pct / 100)
+        else:
+            strategy_importance = 0.0
+    elif key0_first_viable or key1_first_viable:
+        # Only one strategy is viable - low KSM value since no choice needed
+        strategy_importance = 0.1
+    else:
+        # No viable strategies - something is wrong
+        strategy_importance = 0.0
+    
+    # Calculate LIFO constraint
+    lifo_constraint = 0.3  # Base constraint value
+    
+    # Keys being close to each other makes LIFO more important
+    if agent._bfs_distance(state_dict, keys[0], keys[1], consider_doors=True, available_keys=[0]) <= 3:
+        lifo_constraint += 0.3
+    
+    # Keys being close to their own doors makes order LESS critical
+    if key0_door0 <= 3 and key1_door1 <= 3:
+        lifo_constraint -= 0.2
+    
+    # Check if one key is locked behind the other's door
+    if not both_keys_accessible:
+        # One key is locked - reduces KSM importance (forced order)
+        lifo_constraint = 0.1
+    
+    # Ensure LIFO constraint is in [0,1] range
+    lifo_constraint = max(0.0, min(1.0, lifo_constraint))
+    
+    # Apply our mathematical transformation for enhanced KSM
+    wall_count = len(walls)
+    strategy_diff_pct = 0
+    if key0_first_viable and key1_first_viable and min(strategy1_cost, strategy2_cost) > 0:
+        strategy_diff_pct = abs(strategy1_cost - strategy2_cost) / min(strategy1_cost, strategy2_cost) * 100
+    
+    # Calculate each component separately
+    path_exp = 0.1 * (1 - math.exp(-0.5 * path_complexity))
+    choke_exp = 0.1 * (1 - math.exp(-0.015 * (choke_points * choke_traversals)))
+    direction_exp = 0.15 * (1 - math.exp(-0.15 * total_direction_changes)) * (enemy_overlaps / 10.0 + 0.5)
+    variance_exp = 0.3 * (1 - math.exp(-0.2 * path_length_variance))
+    
+    # Strategy component - adjusted to more strongly value strategic choice
+    if key0_first_viable and key1_first_viable:
+        strat_factor = 0.3 * math.log10(1 + strategy_diff_pct/8)
+    else:
+        strat_factor = 0.05
+    
+    # LIFO component
+    lifo_factor = 0.1 / (1 + math.exp(-5 * (lifo_constraint - 0.3)))
+    
+    # Wall factor using logarithm
+    wall_factor = 0.05 * math.log10(1 + wall_count)
+    
+    # Return all components and related metrics
+    components = {
+        "path_complexity": path_complexity,
+        "wall_density": wall_density,
+        "detour_ratio": detour_ratio,
+        "kdk_complexity": key_door_key_complexity,
+        "strategy_importance": strategy_importance,
+        "lifo_constraint": lifo_constraint,
+        "key0_viable": key0_first_viable,
+        "key1_viable": key1_first_viable,
+        "strategy1_cost": strategy1_cost,
+        "strategy2_cost": strategy2_cost,
+        "strategy_diff_pct": strategy_diff_pct,
+        "walls": wall_count,
+        
+        # Enhanced KSM components
+        "path_exp": path_exp,
+        "choke_exp": choke_exp, 
+        "direction_exp": direction_exp,
+        "variance_exp": variance_exp,
+        "strat_factor": strat_factor,
+        "lifo_factor": lifo_factor,
+        "wall_factor": wall_factor,
+        
+        # Original KSM factor
+        "original_ksm": ksm_factor
+    }
+    
+    return components
+
+def calculate_enhanced_ksm_factor(components):
+    """Calculate the enhanced KSM factor using our mathematical transformation."""
+    # Sum all components
+    enhanced_ksm = (
+        components["path_exp"] + 
+        components["choke_exp"] + 
+        components["direction_exp"] + 
+        components["variance_exp"] + 
+        components["strat_factor"] + 
+        components["lifo_factor"] + 
+        components["wall_factor"]
+    )
+    
+    return enhanced_ksm
+
 def calculate_ksm_for_all_templates():
     """Calculate and display the KSM factor for all environment templates."""
     # List of all available templates
@@ -213,8 +441,8 @@ def calculate_ksm_for_all_templates():
     ]
     
     print("\n===== KSM Factor Analysis for All Templates =====\n")
-    print(f"{'Template':<15} {'Walls':<8} {'Path':<8} {'Strategy':<10} {'LIFO':<8} {'KSM':<8} {'Key0 Viable':<12} {'Key1 Viable':<12}")
-    print("-" * 90)
+    print(f"{'Template':<15} {'Walls':<8} {'Path':<8} {'Strategy':<10} {'LIFO':<8} {'KSM':<8} {'Enhanced':<10} {'Key0 Viable':<12} {'Key1 Viable':<12}")
+    print("-" * 100)
     
     results = {}
     
@@ -235,131 +463,48 @@ def calculate_ksm_for_all_templates():
         # Calculate detailed path metrics
         path_metrics = analyze_paths(agent, state)
         
-        # Calculate the KSM factor (capture output for parsing)
-        import io
-        import sys
-        from contextlib import redirect_stdout
+        # Calculate KSM factor components
+        components = calculate_ksm_factor_components(agent, state, path_metrics)
         
-        # Capture the detailed output
-        detailed_output = io.StringIO()
-        with redirect_stdout(detailed_output):
-            ksm_factor = agent.calculate_environment_ksm_factor(state)
-        
-        # Parse the captured output to get constraint values
-        output_lines = detailed_output.getvalue().strip().split('\n')
-        constraints = {}
-        wall_count = 0
-        key0_viable = False
-        key1_viable = False
-        strategy1_cost = 0.0
-        strategy2_cost = 0.0
-        wall_density = 0.0
-        detour_ratio = 0.0
-        kdk_complexity = 0.0
-        
-        for line in output_lines:
-            if ":" in line:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip().lower()
-                    value = parts[1].strip()
-                    
-                    if "walls" in key:
-                        try:
-                            wall_count = int(value)
-                        except:
-                            wall_count = 0
-                    elif "key0 first viable" in key:
-                        key0_viable = value.lower() == "true"
-                    elif "key1 first viable" in key:
-                        key1_viable = value.lower() == "true"
-                    elif "strategy1 cost" in key:
-                        try:
-                            strategy1_cost = float(value)
-                        except:
-                            strategy1_cost = 0.0
-                    elif "strategy2 cost" in key:
-                        try:
-                            strategy2_cost = float(value)
-                        except:
-                            strategy2_cost = 0.0
-                    elif "wall density" in key:
-                        try:
-                            wall_density = float(value)
-                        except:
-                            wall_density = 0.0
-                    elif "detour ratio" in key:
-                        try:
-                            detour_ratio = float(value)
-                        except:
-                            detour_ratio = 0.0
-                    elif "k-d-k complexity" in key:
-                        try:
-                            kdk_complexity = float(value)
-                        except:
-                            kdk_complexity = 0.0
-                    elif "path complexity" in key:
-                        try:
-                            constraints["path"] = float(value)
-                        except:
-                            constraints["path"] = 0.0
-                    elif "strategy importance" in key:
-                        try:
-                            constraints["strategy"] = float(value)
-                        except:
-                            constraints["strategy"] = 0.0
-                    elif "lifo constraint" in key:
-                        try:
-                            constraints["lifo"] = float(value)
-                        except:
-                            constraints["lifo"] = 0.0
-                    elif "ksm factor" in key:
-                        try:
-                            constraints["ksm"] = float(value)
-                        except:
-                            constraints["ksm"] = 0.0
+        # Calculate enhanced KSM factor
+        enhanced_ksm = calculate_enhanced_ksm_factor(components)
         
         # Store results
         results[template_name] = {
-            "walls": wall_count,
-            "wall_density": wall_density,
-            "detour_ratio": detour_ratio,
-            "kdk_complexity": kdk_complexity,
-            "path": constraints.get("path", 0.0),
-            "strategy": constraints.get("strategy", 0.0),
-            "lifo": constraints.get("lifo", 0.0),
-            "ksm": constraints.get("ksm", 0.0),
-            "key0_viable": key0_viable,
-            "key1_viable": key1_viable,
-            "strategy1_cost": strategy1_cost,
-            "strategy2_cost": strategy2_cost,
-            "path_metrics": path_metrics
+            "components": components,
+            "path_metrics": path_metrics,
+            "enhanced_ksm": enhanced_ksm
         }
         
         # Display in table format
-        print(f"{template_name:<15} {wall_count:<8d} {constraints.get('path', 0.0):<8.2f} {constraints.get('strategy', 0.0):<10.2f} {constraints.get('lifo', 0.0):<8.2f} {constraints.get('ksm', 0.0):<8.2f} {str(key0_viable):<12} {str(key1_viable):<12}")
+        print(f"{template_name:<15} {components['walls']:<8d} {components['path_complexity']:<8.2f} {components['strategy_importance']:<10.2f} {components['lifo_constraint']:<8.2f} {components['original_ksm']:<8.2f} {enhanced_ksm:<10.2f} {str(components['key0_viable']):<12} {str(components['key1_viable']):<12}")
         
         # Close the environment
         env.close()
     
-    print("\n===== Analysis Summary =====\n")
-    # Sort templates by KSM factor (highest to lowest)
-    sorted_templates = sorted(results.items(), key=lambda x: x[1]["ksm"], reverse=True)
+    print("\n===== Enhanced KSM Factor Analysis =====\n")
     
-    print("Templates ranked by KSM factor (highest to lowest):")
+    # Sort templates by enhanced KSM factor (highest to lowest)
+    sorted_templates = sorted(results.items(), key=lambda x: x[1]["enhanced_ksm"], reverse=True)
+    
+    print("Templates ranked by enhanced KSM factor (highest to lowest):")
     for i, (template, values) in enumerate(sorted_templates):
-        print(f"{i+1}. {template:<15} - KSM: {values['ksm']:.2f}")
+        enhanced_ksm = values["enhanced_ksm"]
+        print(f"{i+1}. {template:<15} - Enhanced KSM: {enhanced_ksm:.2f}")
     
-    print("\nDominant constraints by template:")
+    print("\n===== Component Breakdown by Template =====\n")
     for template, values in results.items():
-        # Find the highest constraint
-        max_constraint = max(
-            ("Path", values["path"]), 
-            ("Strategy", values["strategy"]),
-            ("LIFO", values["lifo"]),
-            key=lambda x: x[1]
-        )
-        print(f"{template:<15} - {max_constraint[0]} constraint: {max_constraint[1]:.2f}")
+        components = values["components"]
+        print(f"\n{template} Component Breakdown:")
+        print(f"  Path exponential:       {components['path_exp']:.2f}")
+        print(f"  Choke exponential:      {components['choke_exp']:.2f}")
+        print(f"  Direction exponential:  {components['direction_exp']:.2f}")
+        print(f"  Variance exponential:   {components['variance_exp']:.2f}")
+        print(f"  Strategy factor:        {components['strat_factor']:.2f}")
+        print(f"  LIFO factor:            {components['lifo_factor']:.2f}")
+        print(f"  Wall factor:            {components['wall_factor']:.2f}")
+        print(f"  TOTAL Enhanced KSM:     {values['enhanced_ksm']:.2f}")
+        print(f"  Original KSM:           {components['original_ksm']:.2f}")
     
     print("\nDetailed Path Analysis:")
     for template, values in results.items():
@@ -375,10 +520,11 @@ def calculate_ksm_for_all_templates():
     
     print("\nStrategy Viability Analysis:")
     for template, values in results.items():
-        key0_viable = values["key0_viable"]
-        key1_viable = values["key1_viable"]
-        strategy1_cost = values["strategy1_cost"]
-        strategy2_cost = values["strategy2_cost"]
+        components = values["components"]
+        key0_viable = components["key0_viable"]
+        key1_viable = components["key1_viable"]
+        strategy1_cost = components["strategy1_cost"]
+        strategy2_cost = components["strategy2_cost"]
         
         # Determine if both strategies are viable and which is better
         if key0_viable and key1_viable:
