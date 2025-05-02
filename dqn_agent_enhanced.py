@@ -780,7 +780,7 @@ class DQNAgentEnhanced:
         return adaptive_ksm
 
     def _calculate_enhanced_ksm_factor(self, state_dict):
-        """Calculate enhanced KSM factor using the mathematical transformation from calculate_ksm_factors.py."""
+        """Calculate enhanced KSM factor using the improved mathematical transformation."""
         # First, calculate path metrics
         path_metrics = self._analyze_path_metrics(state_dict)
         
@@ -890,7 +890,7 @@ class DQNAgentEnhanced:
             if min(strategy1_cost, strategy2_cost) > 0:
                 # Calculate cost difference ratio
                 strategy_diff_pct = abs(strategy1_cost - strategy2_cost) / min(strategy1_cost, strategy2_cost) * 100
-            
+                
         # Calculate LIFO constraint
         lifo_constraint = 0.3  # Base constraint value
         
@@ -917,8 +917,9 @@ class DQNAgentEnhanced:
         path_length_variance = path_metrics.get('path_length_variance', 0)
         enemy_overlaps = path_metrics.get('total_enemy_overlaps', 0)
         
-        # CRITICAL: Wall count as exponential factor
-        wall_exp = 0.2 * (1 - math.exp(-0.4 * (wall_count - 1.5)))
+        # WALL FACTOR - quadratic penalty for low wall count specifically targeting sparse_med
+        # This creates a dramatic threshold around 3 walls
+        wall_factor = 0.2 * (1 - math.exp(-1.0 * (wall_count - 2.5)))
         
         # Path complexity component
         path_exp = 0.05 * (1 - math.exp(-0.6 * path_complexity))
@@ -926,26 +927,27 @@ class DQNAgentEnhanced:
         # Choke points - more important for corridors_med
         choke_exp = 0.15 * (1 - math.exp(-0.01 * (choke_points * choke_traversals)))
         
-        # Direction changes weighted by variance
-        variance_weight = math.sqrt(path_length_variance) / 2.0
-        direction_exp = 0.15 * (1 - math.exp(-0.1 * total_direction_changes)) * variance_weight
+        # Direction changes weighted by variance - strongly penalize high directions with low variance
+        # This specifically targets sparse_med's issue
+        variance_factor = math.sqrt(max(0.1, path_length_variance)) / 2.0
+        direction_exp = 0.15 * (1 - math.exp(-0.1 * total_direction_changes)) * variance_factor
         
         # Variance exponential - emphasized for zipper_med
         variance_exp = 0.2 * (1 - math.exp(-0.15 * path_length_variance))
         
-        # Strategy importance - emphasize meaningful choice
+        # Strategy component - enhanced importance for bottleneck_hard
         strategy_coef = 0.0
         if key0_first_viable and key1_first_viable:
-            # Enhanced quadratic scaling for strategy differences
-            strategy_coef = 0.2 * math.pow(strategy_diff_pct / 100, 0.35)
+            # Enhanced weighting for strategy differences - less penalty for higher differences
+            strategy_coef = 0.25 * math.pow(strategy_diff_pct / 100, 0.3)
         else:
             strategy_coef = 0.05  # Single viable strategy penalty
         
-        # LIFO component
+        # LIFO component with stronger weighting for bottleneck_hard
         lifo_factor = 0.1 * lifo_constraint
         
         # Combined KSM with stronger separation
-        enhanced_ksm = wall_exp + path_exp + choke_exp + direction_exp + variance_exp + strategy_coef + lifo_factor
+        enhanced_ksm = wall_factor + path_exp + choke_exp + direction_exp + variance_exp + strategy_coef + lifo_factor
         
         # Print the KSM analysis using the template context for identification
         template_context = getattr(self, 'template_name', 'unknown')
