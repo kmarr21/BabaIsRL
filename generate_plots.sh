@@ -12,6 +12,6 @@ fi
 echo "Generating plots for experiments: ${EXPERIMENTS[*]}"
 
 # Run the Python script to generate plots
-python plot_results.py "${EXPERIMENTS[@]}"
+python new_plot_results.py "${EXPERIMENTS[@]}"
 
 echo "Plots generated in plots/ directory"
