@@ -154,9 +154,8 @@ def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200,
             if done:
                 break
         
-        # Update symbolic guidance weight adaptively
-        current_success_rate = sum(success_history[-100:]) / min(100, len(success_history)) if success_history else 0
-        guidance_weight = agent.update_symbolic_guidance_weight(current_success_rate, i_episode)
+        # Simply use the fixed guidance weight - no adaptive adjustment
+        guidance_weight = agent.symbolic_guidance_weight
         guidance_weight_history.append(guidance_weight)
         
         # Calculate decision rates
