@@ -17,14 +17,21 @@ python new_plot_results.py "${EXPERIMENTS[@]}"
 echo "Plots generated in plots/ directory"
 
 # Create a directory to store the plots for downloading
-mkdir -p ~/plot_chunks_6k
+mkdir -p ~/experiment_results/plots_6k
 
-# Zip up the plot directories
+# Copy the plots to the external directory
 for experiment in "${EXPERIMENTS[@]}"; do
     for template in basic_med sparse_med zipper_med bottleneck_med bottleneck_hard corridors_med; do
-        zip -r ~/plot_chunks_6k/${experiment}_${template}.zip plots/${experiment}/${template}/
+        # Create destination directory
+        mkdir -p ~/experiment_results/plots_6k/${experiment}/${template}/
+        
+        # Copy all plot files
+        cp -r plots/${experiment}/${template}/* ~/experiment_results/plots_6k/${experiment}/${template}/
+        
+        # Also create zip archives for easier downloading
+        zip -r ~/experiment_results/plots_6k/${experiment}_${template}.zip plots/${experiment}/${template}/
     done
 done
 
-echo "Plot archives created in ~/plot_chunks_6k/"
-echo "You can now download these files individually"
+echo "Plots copied to ~/experiment_results/plots_6k/"
+echo "Zip archives also created in the same directory"
