@@ -35,6 +35,7 @@ class NeurosymbolicDQNAgent(DQNAgentEnhanced):
         self.symbolic_tree = NeuralGuidedDecisionTree(self.policy_net, device)
         
         # Weight for symbolic guidance (0 = pure neural, 1 = pure symbolic)
+        # This is now a fixed value that won't change during training
         self.symbolic_guidance_weight = symbolic_guidance_weight
         
         # Track symbolic reasoning for analysis
@@ -92,7 +93,7 @@ class NeurosymbolicDQNAgent(DQNAgentEnhanced):
                 symbolic_prefs = guidance['action_mask']
                 symbolic_prefs = symbolic_prefs / symbolic_prefs.max()
                 
-                # Weighted blend
+                # Weighted blend - using the fixed symbolic guidance weight
                 w = self.symbolic_guidance_weight
                 blended_prefs = (1 - w) * neural_prefs + w * symbolic_prefs
                 
@@ -129,12 +130,6 @@ class NeurosymbolicDQNAgent(DQNAgentEnhanced):
         return self.symbolic_stats
     
     def update_symbolic_guidance_weight(self, success_rate, episode_num):
-        """Adaptively update the symbolic guidance weight based on learning progress — PAUSED for now"""
-        # Increase symbolic guidance if success rate is low
-        #if success_rate < 0.3:
-            #self.symbolic_guidance_weight = min(0.9, self.symbolic_guidance_weight + 0.05)
-        # Gradually reduce symbolic guidance as agent improves
-        #elif success_rate > 0.7 and episode_num > 1000:
-            #self.symbolic_guidance_weight = max(0.4, self.symbolic_guidance_weight - 0.05)
-        
+        """Return the fixed symbolic guidance weight - no adaptive adjustments."""
+        # Simply return the fixed weight value - no changes
         return self.symbolic_guidance_weight
