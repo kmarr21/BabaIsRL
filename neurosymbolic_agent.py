@@ -15,8 +15,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class NeurosymbolicDQNAgent:
     """
-    Neurosymbolic DQN Agent that combines a neural network with a symbolic decision tree.
-    Can use either Enhanced DQN or Base DQN as its neural component.
+    Neurosymbolic DQN Agent that extends the Enhanced DQN Agent
+    with a Neural-Guided Decision Tree for symbolic reasoning.
     """
     
     def __init__(self, state_size, action_size, seed=0, 
@@ -24,60 +24,30 @@ class NeurosymbolicDQNAgent:
                  buffer_size=100000, batch_size=128, update_every=8,
                  use_augmented_state=True, ksm_mode="off",
                  symbolic_guidance_weight=0.65,
-                 use_enhanced_dqn=True,
+                 use_base_dqn=False,
                  gradual_guidance_decrease=False,
                  min_guidance_weight=0.3,
                  guidance_decay=0.9999):
-        """Initialize the Neurosymbolic DQN Agent.
+        """Initialize the Neurosymbolic DQN Agent."""
+        # For base DQN, turn off augmented state and KSM
+        if use_base_dqn:
+            use_augmented_state = False
+            ksm_mode = "off"
         
-        Args:
-            state_size: Dimension of state space
-            action_size: Dimension of action space
-            seed: Random seed
-            learning_rate: Learning rate for optimizer
-            gamma: Discount factor
-            tau: Soft update parameter
-            buffer_size: Size of replay buffer
-            batch_size: Minibatch size for learning
-            update_every: How often to update the network
-            use_augmented_state: Whether to use augmented state representation
-            ksm_mode: Key Selection Metric mode ("off", "standard", or "adaptive")
-            symbolic_guidance_weight: Weight for symbolic guidance (0-1)
-            use_enhanced_dqn: Whether to use Enhanced DQN or Base DQN
-            gradual_guidance_decrease: Whether to gradually decrease guidance weight
-            min_guidance_weight: Minimum guidance weight when using gradual decrease
-            guidance_decay: Decay factor for guidance weight
-        """
-        # Create the base DQN agent
-        if use_enhanced_dqn:
-            # Use Enhanced DQN
-            self.dqn_agent = DQNAgentEnhanced(
-                state_size=state_size, 
-                action_size=action_size, 
-                seed=seed,
-                learning_rate=learning_rate, 
-                gamma=gamma, 
-                tau=tau,
-                buffer_size=buffer_size, 
-                batch_size=batch_size, 
-                update_every=update_every,
-                use_augmented_state=use_augmented_state, 
-                ksm_mode=ksm_mode
-            )
-        else:
-            # Use Base DQN - import here to avoid circular import
-            from dqn_agent_base import DQNAgent
-            self.dqn_agent = DQNAgent(
-                state_size=state_size, 
-                action_size=action_size, 
-                seed=seed,
-                learning_rate=learning_rate, 
-                gamma=gamma, 
-                tau=tau,
-                buffer_size=buffer_size, 
-                batch_size=batch_size, 
-                update_every=update_every
-            )
+        # Initialize the DQN agent
+        self.dqn_agent = DQNAgentEnhanced(
+            state_size=state_size, 
+            action_size=action_size, 
+            seed=seed,
+            learning_rate=learning_rate, 
+            gamma=gamma, 
+            tau=tau,
+            buffer_size=buffer_size, 
+            batch_size=batch_size, 
+            update_every=update_every,
+            use_augmented_state=use_augmented_state, 
+            ksm_mode=ksm_mode
+        )
         
         # Store action and state dimensions
         self.state_size = state_size
@@ -96,7 +66,7 @@ class NeurosymbolicDQNAgent:
         # Track symbolic reasoning for analysis
         self.decision_history = []
         
-        # For compatibility with enhanced DQN
+        # For state preprocessing compatibility
         self.use_augmented_state = use_augmented_state
     
     def preprocess_state(self, state):
@@ -197,10 +167,6 @@ class NeurosymbolicDQNAgent:
             }
             
         return self.symbolic_stats
-    
-    def update_symbolic_guidance_weight(self, success_rate, episode_num):
-        """Return the current symbolic guidance weight."""
-        return self.symbolic_guidance_weight
     
     def set_template_context(self, template_name):
         """Set the template context for the DQN agent."""
