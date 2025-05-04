@@ -23,7 +23,7 @@ class NeurosymbolicDQNAgent(DQNAgentEnhanced):
                  learning_rate=0.0003, gamma=0.99, tau=0.0005,
                  buffer_size=100000, batch_size=128, update_every=8,
                  use_augmented_state=True, ksm_mode="off",
-                 symbolic_guidance_weight=0.7):
+                 symbolic_guidance_weight=0.65):
         """Initialize the Neurosymbolic DQN Agent."""
         # Initialize the base Enhanced DQN Agent
         super().__init__(state_size, action_size, seed,
@@ -129,12 +129,12 @@ class NeurosymbolicDQNAgent(DQNAgentEnhanced):
         return self.symbolic_stats
     
     def update_symbolic_guidance_weight(self, success_rate, episode_num):
-        """Adaptively update the symbolic guidance weight based on learning progress."""
+        """Adaptively update the symbolic guidance weight based on learning progress — PAUSED for now"""
         # Increase symbolic guidance if success rate is low
-        if success_rate < 0.3:
-            self.symbolic_guidance_weight = min(0.9, self.symbolic_guidance_weight + 0.05)
+        #if success_rate < 0.3:
+            #self.symbolic_guidance_weight = min(0.9, self.symbolic_guidance_weight + 0.05)
         # Gradually reduce symbolic guidance as agent improves
-        elif success_rate > 0.7 and episode_num > 1000:
-            self.symbolic_guidance_weight = max(0.4, self.symbolic_guidance_weight - 0.05)
+        #elif success_rate > 0.7 and episode_num > 1000:
+            #self.symbolic_guidance_weight = max(0.4, self.symbolic_guidance_weight - 0.05)
         
         return self.symbolic_guidance_weight
