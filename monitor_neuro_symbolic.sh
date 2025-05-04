@@ -1,106 +1,51 @@
 #!/bin/bash
 
 # monitor_neuro_symbolic.sh
-# Simple script to monitor progress of the experiment
+# Script to check the status of the neurosymbolic experiment
 
-# Base directory
-BASE_DIR="experiments/neuro_symbolic_comparison"
+# Check if experiment PID exists
+if [ ! -f logs/neuro_symbolic_pid.txt ]; then
+    echo "Experiment PID file not found. Experiment may not be running."
+    exit 1
+fi
 
-# Templates
-TEMPLATES=("basic_med" "sparse_med" "zipper_med" "bottleneck_med" "bottleneck_hard" "corridors_med")
+EXP_PID=$(cat logs/neuro_symbolic_pid.txt)
 
-# Models
-MODELS=("enhanced_dqn" "neurosymbolic_dqn")
+# Function to check if a process is running
+is_running() {
+    if ps -p "$1" > /dev/null; then
+        return 0  # Process is running
+    else
+        return 1  # Process is not running
+    fi
+}
 
-# Seeds
-SEEDS=(42 101 202 303 404)
+# Check status
+if is_running "$EXP_PID"; then
+    echo "Neurosymbolic experiment is running (PID: $EXP_PID)"
+else
+    echo "Neurosymbolic experiment is not running (PID was: $EXP_PID)"
+fi
 
-echo "=========================="
-echo "Neurosymbolic Experiment Status"
-echo "=========================="
-echo "Current time: $(date)"
-echo
+# Find the most recent log file
+EXP_LOG=$(ls -t logs/neuro_symbolic_*.log 2>/dev/null | head -n 1)
 
-# Count running and completed runs
-total_runs=$((${#TEMPLATES[@]} * ${#MODELS[@]} * ${#SEEDS[@]}))
-running=0
-completed=0
-waiting=0
+# Show recent activity from log file
+if [ -n "$EXP_LOG" ]; then
+    echo -e "\nRecent activity from the experiment:"
+    tail -n 20 "$EXP_LOG"
+    
+    # Count configurations completed
+    echo -e "\nProgress summary:"
+    total_configs=$((6 * 2 * 5))  # 6 templates * 2 models * 5 seeds
+    
+    completed=$(grep -c "Successfully completed:" "$EXP_LOG")
+    failed=$(grep -c "All retries failed for:" "$EXP_LOG")
+    
+    echo "Total configurations: $total_configs"
+    echo "Completed: $completed"
+    echo "Failed: $failed"
+    echo "Progress: $(( (completed * 100) / total_configs ))%"
+fi
 
-# Check each combination
-for template in "${TEMPLATES[@]}"; do
-    for model in "${MODELS[@]}"; do
-        echo "Template: $template, Model: $model"
-        echo "------------------------------------"
-        
-        for seed in "${SEEDS[@]}"; do
-            dir="$BASE_DIR/$template/$model/seed$seed"
-            pid_file="$dir/pid.txt"
-            
-            # Check status
-            if [ -f "$pid_file" ]; then
-                pid=$(cat "$pid_file")
-                
-                if ps -p $pid > /dev/null; then
-                    # Process running - check progress
-                    log_files=$(ls -t logs/${template}_${model}_seed${seed}_*.log 2>/dev/null)
-                    
-                    if [ -n "$log_files" ]; then
-                        # Get latest log file
-                        log_file=$(echo "$log_files" | head -n1)
-                        
-                        # Extract progress from log
-                        progress=$(grep -o "Episode [0-9]*/[0-9]*" "$log_file" | tail -n1)
-                        
-                        if [ -n "$progress" ]; then
-                            status="RUNNING - $progress"
-                        else
-                            status="RUNNING - Starting up"
-                        fi
-                    else
-                        status="RUNNING - No logs found"
-                    fi
-                    
-                    running=$((running + 1))
-                else
-                    # Process not running, check if completed
-                    if [ -f "$dir/dqn_final.pth" ]; then
-                        status="COMPLETED"
-                        completed=$((completed + 1))
-                    else
-                        status="STOPPED - Process died"
-                    fi
-                fi
-            else
-                # No PID file
-                if [ -d "$dir" ]; then
-                    if [ -f "$dir/dqn_final.pth" ]; then
-                        status="COMPLETED"
-                        completed=$((completed + 1))
-                    else
-                        status="WAITING"
-                        waiting=$((waiting + 1))
-                    fi
-                else
-                    status="NOT STARTED"
-                    waiting=$((waiting + 1))
-                fi
-            fi
-            
-            echo "  Seed $seed: $status"
-        done
-        
-        echo ""
-    done
-done
-
-echo "Summary:"
-echo "--------"
-echo "Total runs: $total_runs"
-echo "Running: $running"
-echo "Completed: $completed"
-echo "Waiting/Not Started: $waiting"
-echo "Progress: $((100 * completed / total_runs))%"
-echo ""
-echo "To check logs: tail -f logs/*.log"
-echo "To generate plots: python plot_neuro_symbolic_comparison.py"
+echo -e "\nTo see more details, use: tail -f $EXP_LOG"
