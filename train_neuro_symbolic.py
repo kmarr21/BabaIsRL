@@ -18,7 +18,12 @@ def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200,
                          eps_start=1.0, eps_end=0.005, eps_decay=0.998, 
                          render=False, checkpoint_dir='neuro_symbolic_results',
                          eval_freq=100, eval_episodes=10, seed=0,
-                         symbolic_guidance_weight=0.65):
+                         symbolic_guidance_weight=0.65,
+                         use_base_dqn=False,
+                         use_reward_shaping=True,
+                         gradual_guidance_decrease=False,
+                         min_guidance_weight=0.3,
+                         guidance_decay=0.9999):
     """Train Neurosymbolic DQN agent on LIFO Corridors environment."""
     
     # Create output directory
@@ -29,23 +34,40 @@ def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200,
     
     # Create environment
     env = TemplateLIFOCorridorsEnv(template_name=template_name, render_enabled=False, 
-                                   verbose=False, use_reward_shaping=True)
+                                   verbose=False, use_reward_shaping=use_reward_shaping)
     
     # Get state and action sizes
     state, _ = env.reset()
     
     # Create a temporary agent to get the preprocessed state size
-    temp_agent = NeurosymbolicDQNAgent(0, 0, use_augmented_state=True)
+    temp_agent = NeurosymbolicDQNAgent(0, 0, use_augmented_state=not use_base_dqn)
     state_size = len(temp_agent.preprocess_state(state))
     action_size = env.action_space.n
     
+    # Print configuration
+    dqn_type = "Base DQN" if use_base_dqn else "Enhanced DQN"
+    guidance_type = "Gradually decreasing" if gradual_guidance_decrease else "Fixed"
+    reward_shaping_str = "enabled" if use_reward_shaping else "disabled"
+    
     print(f"Template: {template_name}, State size: {state_size}, Action size: {action_size}")
-    print(f"Neurosymbolic DQN with guidance weight: {symbolic_guidance_weight}")
+    print(f"Neurosymbolic {dqn_type} with {guidance_type} guidance weight: {symbolic_guidance_weight}")
+    print(f"Reward shaping: {reward_shaping_str}")
+    if gradual_guidance_decrease:
+        print(f"Guidance weight will decrease to {min_guidance_weight} with decay factor {guidance_decay}")
     
     # Create agent
-    agent = NeurosymbolicDQNAgent(state_size=state_size, action_size=action_size, 
-                                 seed=seed, use_augmented_state=True,
-                                 symbolic_guidance_weight=symbolic_guidance_weight)
+    agent = NeurosymbolicDQNAgent(
+        state_size=state_size, 
+        action_size=action_size, 
+        seed=seed, 
+        use_augmented_state=not use_base_dqn,
+        ksm_mode="off",  # KSM is turned off for neurosymbolic agent
+        symbolic_guidance_weight=symbolic_guidance_weight,
+        use_base_dqn=use_base_dqn,
+        gradual_guidance_decrease=gradual_guidance_decrease,
+        min_guidance_weight=min_guidance_weight,
+        guidance_decay=guidance_decay
+    )
     
     # Set template context for logging
     agent.set_template_context(template_name)
@@ -107,7 +129,7 @@ def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200,
         decision_counts = {'neural': 0, 'guided': 0}
         
         # Initialize total reward tracking for this episode
-        agent.total_reward = 0
+        agent.dqn_agent.total_reward = 0
         
         for t in range(max_t):
             # Select and perform action
@@ -144,7 +166,7 @@ def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200,
             # Update state and score
             state = next_state
             score += reward
-            agent.total_reward = score  # Update total reward for the episode
+            agent.dqn_agent.total_reward = score  # Update total reward for the episode
             
             # Render if enabled
             if render:
@@ -154,7 +176,7 @@ def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200,
             if done:
                 break
         
-        # Simply use the fixed guidance weight - no adaptive adjustment
+        # Get current guidance weight (may have been decreased if using gradual decrease)
         guidance_weight = agent.symbolic_guidance_weight
         guidance_weight_history.append(guidance_weight)
         
@@ -180,7 +202,7 @@ def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200,
         else:
             success_rate = sum(success_history) / len(success_history)
         
-        agent.current_success_rate = success_rate
+        agent.dqn_agent.current_success_rate = success_rate
         success_rate_history.append(success_rate)
         
         # Log data for this episode
@@ -411,7 +433,12 @@ if __name__ == "__main__":
     parser.add_argument('--output', type=str, default='neuro_symbolic_results', help='Output directory')
     parser.add_argument('--eval-freq', type=int, default=100, help='Evaluation frequency')
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
-    parser.add_argument('--guidance-weight', type=float, default=0.7, help='Weight for symbolic guidance (0-1)')
+    parser.add_argument('--guidance-weight', type=float, default=0.65, help='Weight for symbolic guidance (0-1)')
+    parser.add_argument('--use-base-dqn', action='store_true', help='Use base DQN (no state augmentation or KSM)')
+    parser.add_argument('--no-reward-shaping', action='store_true', help='Disable reward shaping')
+    parser.add_argument('--gradual-guidance', action='store_true', help='Gradually decrease guidance weight')
+    parser.add_argument('--min-guidance', type=float, default=0.3, help='Minimum guidance weight')
+    parser.add_argument('--guidance-decay', type=float, default=0.9999, help='Guidance weight decay factor')
     
     args = parser.parse_args()
     
@@ -424,6 +451,9 @@ if __name__ == "__main__":
     print(f"Template: {args.template}")
     print(f"Training for {args.episodes} episodes")
     print(f"Symbolic guidance weight: {args.guidance_weight}")
+    print(f"DQN type: {'Base' if args.use_base_dqn else 'Enhanced'}")
+    print(f"Reward shaping: {'disabled' if args.no_reward_shaping else 'enabled'}")
+    print(f"Guidance weight: {'Gradually decreasing' if args.gradual_guidance else 'Fixed'}")
     
     # Run training with parameters
     scores, win_episodes, success_rates, wrong_key_attempts = train_neuro_symbolic(
@@ -433,5 +463,10 @@ if __name__ == "__main__":
         checkpoint_dir=args.output,
         eval_freq=args.eval_freq,
         seed=args.seed,
-        symbolic_guidance_weight=args.guidance_weight
+        symbolic_guidance_weight=args.guidance_weight,
+        use_base_dqn=args.use_base_dqn,
+        use_reward_shaping=not args.no_reward_shaping,
+        gradual_guidance_decrease=args.gradual_guidance,
+        min_guidance_weight=args.min_guidance,
+        guidance_decay=args.guidance_decay
     )
