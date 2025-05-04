@@ -18,7 +18,7 @@ def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200,
                          eps_start=1.0, eps_end=0.005, eps_decay=0.998, 
                          render=False, checkpoint_dir='neuro_symbolic_results',
                          eval_freq=100, eval_episodes=10, seed=0,
-                         symbolic_guidance_weight=0.7):
+                         symbolic_guidance_weight=0.65):
     """Train Neurosymbolic DQN agent on LIFO Corridors environment."""
     
     # Create output directory
