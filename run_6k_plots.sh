@@ -11,4 +11,3 @@ mkdir -p ${FRESH_DIR}
 python ~/plot_6k_experiments.py --output-dir ${FRESH_DIR} --data-dir ~/BabaIsRL/experiments
 
 echo "Plots generated in: ${FRESH_DIR}"
-echo "CSV files are already in: ~/6k_csv_20250505_001111.zip"
