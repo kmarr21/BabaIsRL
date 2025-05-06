@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # experiment_runner_6k.sh
-# Main script to run all 6K episodes experiments in the background
+# run all 6K episodes experiments in the background
 
-# Create directory structure
+# create directory structure
 mkdir -p experiments/experiment1_6k experiments/experiment2_6k logs plots/experiment1_6k plots/experiment2_6k
 
 # Record start time
