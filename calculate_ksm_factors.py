@@ -42,7 +42,7 @@ def analyze_paths(agent, state_dict):
         ("door1_to_key0", door1_to_key0_path)
     ]
     
-    # 1. tath lengths
+    # 1. path lengths
     path_lengths = {name: len(path) for name, path in all_paths if path}
     path_metrics["path_lengths"] = path_lengths
     
