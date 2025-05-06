@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # experiment_runner.sh
-# MAIN script to run all experiments in the background!
+# run all 4k experiments in the background!
 
 # create directory structure (in case not there)
 mkdir -p experiments/experiment1 experiments/experiment2 logs plots/experiment1 plots/experiment2
