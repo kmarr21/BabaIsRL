@@ -3,7 +3,7 @@
 # generate_plots.sh
 # generates aggregated plots from experiment results
 
-# fefault to generating plots for both experiments if none specified
+# default to generating plots for both experiments if none specified
 EXPERIMENTS=("experiment1" "experiment2")
 if [ $# -ge 1 ]; then
     EXPERIMENTS=("$@")
