@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # experiment_runner_neuro.sh
-# Main script to run neurosymbolic experiment in the background
+# run neurosymbolic experiment in the background
 
 # create directory structure
 mkdir -p experiments/neuro_symbolic experiments/neuro_symbolic_comparison logs plots/neuro_symbolic
