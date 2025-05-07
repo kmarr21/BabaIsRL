@@ -6,12 +6,14 @@ import argparse
 from template_lifo_corridors import TemplateLIFOCorridorsEnv
 from dqn_agent_enhanced import DQNAgentEnhanced
 
+# TO CHECK + DEBUG KSM LOGIC (see if working as expected on templates)
+
+# validate that BFS paths are working correctly
 def validate_bfs_paths(env_state, template_name):
-    """Validate that BFS paths are working correctly."""
-    # Create a temporary agent for BFS calculation
+    # create a temporary agent for BFS calcs
     agent = DQNAgentEnhanced(0, 0, use_augmented_state=True)
     
-    # Extract key components
+    # extract key components
     agent_pos = env_state['agent']
     keys = env_state['keys']
     doors = env_state['doors']
@@ -21,7 +23,7 @@ def validate_bfs_paths(env_state, template_name):
     print(f"Key positions: {keys}")
     print(f"Door positions: {doors}")
     
-    # Calculate all important paths using BFS - with door consideration
+    # calculate all important paths w/ BFS (with door consideration!)
     paths = [
         ("Agent -> Key0", agent._bfs_distance(env_state, agent_pos, keys[0], consider_doors=True)),
         ("Agent -> Key1", agent._bfs_distance(env_state, agent_pos, keys[1], consider_doors=True)),
@@ -32,17 +34,15 @@ def validate_bfs_paths(env_state, template_name):
         ("Door1 -> Key0", agent._bfs_distance(env_state, doors[1], keys[0], consider_doors=True, available_keys=[1]))
     ]
     
-    # Check which paths exist and display their lengths
+    # check which paths exist and display lengths
     print("\nPath Existence:")
     for name, distance in paths:
-        if distance == float('inf'):
-            exists = "NO"
-        else:
-            exists = "YES"
+        if distance == float('inf'): exists = "NO"
+        else: exists = "YES"
         print(f"{name:<15}: {exists} - Distance: {distance if distance != float('inf') else 'inf'}")
     
-    # Path existence checks with correct door accessibility
-    # When checking if agent can reach doors, we need to have the corresponding key available!
+    # oath existence checks w/ correct door accessibility
+    #     (whhen checking if agent can reach doors, need to have the corresponding key available!)
     can_reach_key0 = agent._bfs_path_exists(env_state, agent_pos, keys[0], consider_doors=True)
     can_reach_key1 = agent._bfs_path_exists(env_state, agent_pos, keys[1], consider_doors=True)
     can_reach_door0 = agent._bfs_path_exists(env_state, agent_pos, doors[0], consider_doors=True, available_keys=[0])
@@ -54,7 +54,7 @@ def validate_bfs_paths(env_state, template_name):
     print(f"Can reach Door0: {can_reach_door0}")
     print(f"Can reach Door1: {can_reach_door1}")
     
-    # Calculate strategy costs with door consideration
+    # calc strategy costs w/ door consideration
     agent_key0 = agent._bfs_distance(env_state, agent_pos, keys[0], consider_doors=True)
     agent_key1 = agent._bfs_distance(env_state, agent_pos, keys[1], consider_doors=True)
     key0_door0 = agent._bfs_distance(env_state, keys[0], doors[0], consider_doors=True, available_keys=[0])
@@ -62,7 +62,7 @@ def validate_bfs_paths(env_state, template_name):
     door0_key1 = agent._bfs_distance(env_state, doors[0], keys[1], consider_doors=True, available_keys=[0])
     door1_key0 = agent._bfs_distance(env_state, doors[1], keys[0], consider_doors=True, available_keys=[1])
     
-    # Handle infinite distances
+    # handle infinite distances
     if agent_key0 == float('inf'): agent_key0 = agent._manhattan_distance(agent_pos, keys[0]) * 1.5
     if agent_key1 == float('inf'): agent_key1 = agent._manhattan_distance(agent_pos, keys[1]) * 1.5
     if key0_door0 == float('inf'): key0_door0 = agent._manhattan_distance(keys[0], doors[0]) * 1.5
@@ -70,7 +70,7 @@ def validate_bfs_paths(env_state, template_name):
     if door0_key1 == float('inf'): door0_key1 = agent._manhattan_distance(doors[0], keys[1]) * 1.5
     if door1_key0 == float('inf'): door1_key0 = agent._manhattan_distance(doors[1], keys[0]) * 1.5
     
-    # Calculate strategy costs
+    # calculate strategy costs
     strategy1 = agent_key0 + key0_door0 + door0_key1 + key1_door1  # Key0 -> Door0 -> Key1 -> Door1
     strategy2 = agent_key1 + key1_door1 + door1_key0 + key0_door0  # Key1 -> Door1 -> Key0 -> Door0
     
@@ -78,17 +78,17 @@ def validate_bfs_paths(env_state, template_name):
     print(f"Key0 first strategy cost: {strategy1:.1f}")
     print(f"Key1 first strategy cost: {strategy2:.1f}")
     
-    # Comprehensive viability checks considering all possibilities
+    # viability checks:
     
-    # Check if the agent can reach both keys directly
+    # check if the agent can reach both keys directly
     both_keys_accessible = can_reach_key0 and can_reach_key1
     
-    # For Key0 first viability:
-    # 1. Agent must be able to reach Key0
+    # for Key0 first viability:
+    # 1. agent must be able to reach Key0
     # 2. Key0 must be able to reach Door0
-    # 3a. If both keys are directly accessible:
+    # 3a. if both keys are directly accessible:
     #   - Key1 must be able to reach Door1 (may need to go through Door0 first)
-    # 3b. If Key1 is not directly accessible:
+    # 3b. if Key1 is not directly accessible:
     #   - Door0 must be able to reach Key1, and Key1 must be able to reach Door1
     key0_first_viable = (
         can_reach_key0 and
@@ -102,12 +102,12 @@ def validate_bfs_paths(env_state, template_name):
         )
     )
     
-    # For Key1 first viability:
-    # 1. Agent must be able to reach Key1
+    # for Key1 first viability:
+    # 1. agent must be able to reach Key1
     # 2. Key1 must be able to reach Door1
-    # 3a. If both keys are directly accessible:
+    # 3a. if both keys are directly accessible:
     #   - Key0 must be able to reach Door0 (may need to go through Door1 first)
-    # 3b. If Key0 is not directly accessible:
+    # 3b. if Key0 is not directly accessible:
     #   - Door1 must be able to reach Key0, and Key0 must be able to reach Door0
     key1_first_viable = (
         can_reach_key1 and
@@ -121,7 +121,7 @@ def validate_bfs_paths(env_state, template_name):
         )
     )
     
-    # Debugging: print intermediate checks for bottleneck_hard
+    # DEBUGGING: print intermediate checks for bottleneck_hard
     if template_name == "bottleneck_hard":
         print("\nDebugging bottleneck_hard viability:")
         print(f"Both keys directly accessible: {both_keys_accessible}")
@@ -155,47 +155,47 @@ def validate_bfs_paths(env_state, template_name):
     print(f"\nKey0 first viable: {key0_first_viable}")
     print(f"Key1 first viable: {key1_first_viable}")
     
-    # Calculate strategy importance
+    # calculate strategy importance
     if key0_first_viable and key1_first_viable:
-        # Both strategies are viable, compare costs
+        # if both strategies are viable, need to compare costs
         if min(strategy1, strategy2) > 0:
-            # Calculate cost difference ratio
+            # calculate cost difference ratio
             strategy_diff = abs(strategy1 - strategy2) / min(strategy1, strategy2)
             strategy_importance = min(1.0, strategy_diff)
         else:
             strategy_importance = 0.0
     elif key0_first_viable or key1_first_viable:
-        # Only one strategy is viable - lower importance since no choice needed
+        # only one strategy is viable (lower importance since no choice needed)
         strategy_importance = 0.1
     else:
-        # No viable strategies - something is wrong
+        # no viable strategies =>something is wrong?
         strategy_importance = 0.0
     
     print(f"Strategy importance: {strategy_importance:.2f}")
     
     # LIFO constraint analysis
-    lifo_constraint = 0.3  # Base constraint value
+    lifo_constraint = 0.3  # base constraint value
     
-    # Keys being close to each other makes LIFO more important
+    # keys being close to each other makes LIFO more important
     if agent._bfs_distance(env_state, keys[0], keys[1], consider_doors=True, available_keys=[0]) <= 3:
         lifo_constraint += 0.3
         print("Keys are close to each other: +0.3 to LIFO")
     
-    # Keys being close to their own doors makes order LESS critical
+    # keys being close to their own doors makes order LESS critical
     if key0_door0 <= 3 and key1_door1 <= 3:
         lifo_constraint -= 0.2
         print("Both keys close to doors: -0.2 to LIFO")
     
-    # Check if one key is locked behind the other's door
+    # check if one key is locked behind the other's door
     if both_keys_accessible:
-        # Both keys are accessible directly - LIFO is more important
+        # both keys are accessible directly (LIFO is more important)
         pass
     else:
-        # One key is locked - reduces LIFO importance (forced order)
+        # one key is locked => reduces LIFO importance (forced order)
         lifo_constraint = 0.1
         print("One key not directly reachable: LIFO reduced to 0.1")
     
-    # Ensure LIFO constraint is in [0,1] range
+    # ensure LIFO constraint is in [0,1] range
     lifo_constraint = max(0.0, min(1.0, lifo_constraint))
     
     print(f"LIFO constraint: {lifo_constraint:.2f}")
@@ -210,8 +210,8 @@ def validate_bfs_paths(env_state, template_name):
         "lifo_constraint": lifo_constraint
     }
 
+# check KSM logic for all templates
 def check_all_templates():
-    """Check KSM logic for all templates."""
     templates = [
         "basic_med", 
         "sparse_med", 
@@ -224,22 +224,22 @@ def check_all_templates():
     results = {}
     
     for template_name in templates:
-        # Create environment with the template
+        # create env w/ template
         env = TemplateLIFOCorridorsEnv(template_name=template_name, render_enabled=False, verbose=False)
         
-        # Get initial state
+        # get initial state
         state, _ = env.reset()
         
-        # Validate paths and strategies
+        # validate paths and strategies
         results[template_name] = validate_bfs_paths(state, template_name)
         
-        # Close environment
+        # close environment
         env.close()
         
-        # Add a separator
+        # add separator
         print("\n" + "-" * 60 + "\n")
     
-    # Summary
+    # summary
     print("\n=== Summary for All Templates ===\n")
     print(f"{'Template':<15} {'Key0 Viable':<12} {'Key1 Viable':<12} {'Key0 First':<10} {'Key1 First':<10} {'Strategy':<10} {'LIFO':<8}")
     print("-" * 80)
