@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# generate_neuro_symbolic_plots.sh
 # generates aggregated plots from neurosymbolic experiment results
 
 echo "Generating plots for neurosymbolic experiment..."
