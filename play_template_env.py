@@ -5,25 +5,24 @@ import argparse
 import random
 from template_lifo_corridors import TemplateLIFOCorridorsEnv
 
+# play template LIFO corridors env. using keyboard controls
 def play_template_environment(template_name="basic_med"):
-    """Play the Template LIFO Corridors environment using keyboard controls."""
-    
-    # Create environment with the chosen template
+    # create environment with the chosen template
     env = TemplateLIFOCorridorsEnv(template_name=template_name, render_enabled=True, verbose=True)
     
-    # Reset to get initial state
+    # reset to get initial state
     state, _ = env.reset()
     
-    # Initialize pygame for input handling
+    # initialize pygame for input handling
     pygame.init()
     
-    # Define color mapping for keys and doors - correctly map the colors
+    # define color mapping for keys and doors (correctly map the colors!)
     key_door_colors = {
         0: "Orange", 
         1: "Purple"
     }
     
-    # Print instructions
+    # print instructions
     template_info = env.templates[template_name]
     template_display_name = template_info["name"]
     print("\n=== Template LIFO Corridors Environment ===")
@@ -40,27 +39,27 @@ def play_template_environment(template_name="basic_med"):
     print("\nLIFO RULE: Only the most recently collected key can be used!")
     print("Keys and doors are color-coded (orange, purple).")
     
-    # Print robot information based on the template
+    # print robot information based on the template
     robot_type = env.enemies["types"][0]
     if robot_type == "horizontal":
         print("Blue robot moves horizontally.")
     else:
         print("Red robot moves vertically.")
     
-    # Game state variables
+    # game state variables
     done = False
     total_reward = 0
     step_count = 0
     keys_collected = 0
     doors_opened = 0
     
-    # Main game loop
+    # MAIN game loop
     running = True
     while running:
-        # Render environment
+        # render environment
         env.render()
         
-        # Process input
+        # process input
         action = None
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -77,7 +76,7 @@ def play_template_environment(template_name="basic_med"):
                 elif event.key == pygame.K_SPACE:
                     action = 4  # Stay in place
                 elif event.key == pygame.K_r:
-                    # Reset environment
+                    # reset environment
                     state, _ = env.reset()
                     total_reward = 0
                     step_count = 0
@@ -88,20 +87,20 @@ def play_template_environment(template_name="basic_med"):
                 elif event.key == pygame.K_q or event.key == pygame.K_ESCAPE:
                     running = False
         
-        # If a valid action was chosen, take step
+        # if a valid action was chosen, take step
         if action is not None and not done:
             next_state, reward, done, _, info = env.step(action)
             
-            # Update state and stats
+            # update state and stats
             state = next_state
             total_reward += reward
             step_count += 1
             
-            # Track key and door status
+            # track key and door status
             current_keys = np.sum(state['key_status'])
             current_doors = np.sum(state['door_status'])
             
-            # Display info when key collected or door opened
+            # display info when key collected or door opened
             if 'collected_key' in info:
                 collected_key = info['collected_key']
                 color_name = key_door_colors[collected_key]
@@ -115,14 +114,14 @@ def play_template_environment(template_name="basic_med"):
             if 'wrong_key_attempt' in info:
                 print(f"Wrong key! -1.0 reward")
             
-            # Print step information - keeping key_stack info on separate line
+            # print step information / keeping key_stack info on separate line
             action_names = ["Up", "Right", "Down", "Left", "Stay"]
             key_stack_info = f"Key stack: {env.key_stack}" if hasattr(env, 'key_stack') else ""
             
             print(f"Step {step_count}: Action={action_names[action]}, Reward={reward:.2f}, Total={total_reward:.2f}")
             print(f"  Keys: {int(current_keys)}/2, Doors: {int(current_doors)}/2 {key_stack_info}")
             
-            # Check if episode is done
+            # check if episode is done
             if done:
                 if np.all(state['door_status']):
                     print("\nCongratulations! You won by opening all doors!")
@@ -135,10 +134,10 @@ def play_template_environment(template_name="basic_med"):
                     
                 print(f"Total steps: {step_count}, Total reward: {total_reward:.2f}")
         
-        # Small delay to limit frame rate
+        # small delay to limit frame rate
         time.sleep(0.05)
     
-    # Close environment
+    # close env
     env.close()
     pygame.quit()
     print("Game closed.")
@@ -152,7 +151,7 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    # Set random seed if provided
+    # set random seed if provided
     if args.seed is not None:
         random.seed(args.seed)
         np.random.seed(args.seed)
