@@ -8,34 +8,34 @@ import re
 import argparse
 from scipy.ndimage import gaussian_filter1d
 
+# apply gaussian smoothing to data
 def smooth(data, sigma=5):
-    """Apply Gaussian smoothing to data"""
     return gaussian_filter1d(data, sigma=sigma)
 
+# calculate moving avg with specified window
 def calculate_moving_average(values, window=100):
-    """Calculate moving average with the specified window"""
     if len(values) < window:
-        return values  # Return original if not enough data
+        return values # return original if not enough data
     
     result = np.convolve(values, np.ones(window)/window, mode='valid')
-    # Pad the beginning to maintain original length
+    # pad the beginning to maintain original length
     padding = np.full(window-1, np.nan)
     return np.concatenate([padding, result])
 
+# find all training log files for a given template & config
 def find_training_logs(base_dir, template, config):
-    """Find all training log files for a given template and configuration"""
     pattern = os.path.join(base_dir, f"template_{template}", config, f"*{config}*", "training_log.csv")
     files = glob.glob(pattern)
     
     if not files:
-        # Try alternative pattern if the first one doesn't work
+        # try alternative pattern if first one doesn't work
         pattern = os.path.join(base_dir, f"template_{template}", config, "*", "training_log.csv")
         files = glob.glob(pattern)
     
-    # Extract seed from directory path
+    # extract seed from directory path
     result = {}
     for file_path in files:
-        # Extract seed from directory name
+        # extract seed from directory name
         dir_name = os.path.basename(os.path.dirname(file_path))
         match = re.search(r'seed(\d+)', dir_name)
         if match:
@@ -44,8 +44,8 @@ def find_training_logs(base_dir, template, config):
     
     return result
 
+# extract & process metrics for specific config across seeds
 def extract_and_process_metrics(experiment_dir, template, config, seeds):
-    """Extract and process metrics for a specific configuration across seeds"""
     metrics = {
         'scores': [],
         'success_rate': [],
@@ -54,7 +54,7 @@ def extract_and_process_metrics(experiment_dir, template, config, seeds):
         'episode_length': []
     }
     
-    # Find all training log files
+    # find all training log files
     log_files = find_training_logs(experiment_dir, template, config)
     
     for seed in seeds:
@@ -65,41 +65,41 @@ def extract_and_process_metrics(experiment_dir, template, config, seeds):
             try:
                 df = pd.read_csv(log_file)
                 
-                # Extract metrics
+                # extract metrics
                 episodes = df['episode'].values
                 
-                # Scores (already in the dataframe)
+                # scores (already in the dataframe)
                 scores = df['score'].values
                 smoothed_scores = smooth(scores)
                 metrics['scores'].append((episodes, smoothed_scores))
                 
-                # Success rate (calculate moving average)
+                # success rate (calculate moving average)
                 if 'success' in df.columns:
                     success = df['success'].values.astype(float)
                     success_rate = calculate_moving_average(success)
                     metrics['success_rate'].append((episodes, success_rate))
                 
-                # Wrong key rate
+                # wrong key rate
                 if 'wrong_key_attempts' in df.columns and 'steps' in df.columns:
-                    # Calculate wrong key rate per step
+                    # calculate wrong key rate per step
                     wrong_keys = df['wrong_key_attempts'].values
                     steps = df['steps'].values
-                    # Avoid division by zero
+                    # avoid division by zero
                     wrong_key_rate = np.zeros_like(wrong_keys, dtype=float)
                     mask = steps > 0
                     wrong_key_rate[mask] = wrong_keys[mask] / steps[mask]
-                    # Smooth the rate
+                    # smooth rate
                     smoothed_wrong_key_rate = smooth(wrong_key_rate)
                     metrics['wrong_key_rate'].append((episodes, smoothed_wrong_key_rate))
                 
-                # Crash rate (if termination reason is available)
+                # crash rate (if termination reason is available)
                 if 'termination_reason' in df.columns:
-                    # Calculate crash rate (moving average of terminations due to enemy_collision)
+                    # calculate crash rate (moving average of terminations due to enemy_collision)
                     crashes = (df['termination_reason'] == 'enemy_collision').astype(float)
                     crash_rate = calculate_moving_average(crashes)
                     metrics['crash_rate'].append((episodes, crash_rate))
                 
-                # Episode length
+                # episode length
                 if 'steps' in df.columns:
                     steps = df['steps'].values
                     smoothed_steps = smooth(steps, sigma=15)
@@ -112,8 +112,8 @@ def extract_and_process_metrics(experiment_dir, template, config, seeds):
     
     return metrics
 
+# generate plots for all metrics across templates
 def generate_plots(experiment_name, templates, configs, config_labels, seeds):
-    """Generate plots for all metrics across templates"""
     experiment_dir = os.path.join('experiments', experiment_name)
     output_dir = os.path.join('plots', experiment_name)
     os.makedirs(output_dir, exist_ok=True)
@@ -126,24 +126,24 @@ def generate_plots(experiment_name, templates, configs, config_labels, seeds):
         ('episode_length', 'Episode Length', 'Steps per Episode')
     ]
     
-    # Colors for different configurations
+    # colors for different configurations
     colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
     
-    # Process each template
+    #process each template
     for template in templates:
         template_output_dir = os.path.join(output_dir, template)
         os.makedirs(template_output_dir, exist_ok=True)
         
         print(f"\nProcessing template: {template}")
         
-        # Extract metrics for each configuration
+        # extract metrics for each configuration
         all_config_metrics = {}
         for config in configs:
             print(f"  Processing configuration: {config}")
             all_config_metrics[config] = extract_and_process_metrics(
                 experiment_dir, template, config, seeds)
         
-        # Generate plots for each metric
+        # generate plots for each metric
         for metric_name, title, y_label in metrics_to_plot:
             print(f"  Generating {metric_name} plot...")
             
@@ -157,20 +157,20 @@ def generate_plots(experiment_name, templates, configs, config_labels, seeds):
                     print(f"    No {metric_name} data for {config}")
                     continue
                 
-                # Calculate mean and standard deviation across seeds
+                # calculate mean and std dev across seeds
                 max_len = max(len(eps) for eps, _ in metrics) if metrics else 0
                 if max_len == 0:
                     continue
                 
-                # Create a common x-axis (episodes)
+                # create a common x-axis (episodes)
                 episode_range = np.arange(1, max_len + 1)
                 
-                # Align and collect values for all seeds
+                # align and collect values for all seeds
                 values_array = []
                 for episodes, values in metrics:
-                    # Only use data up to the maximum common length
+                    # only use data up to the maximum common length
                     if len(episodes) > 0 and len(values) > 0:
-                        # Ensure we're using the same range for all seeds
+                        # ensure using the same range for all seeds
                         aligned_values = np.full(max_len, np.nan)
                         aligned_values[:len(values)] = values[:max_len]
                         values_array.append(aligned_values)
@@ -180,17 +180,17 @@ def generate_plots(experiment_name, templates, configs, config_labels, seeds):
                 
                 values_array = np.array(values_array)
                 
-                # Calculate statistics, ignoring NaN values
+                # calculate stats, ignoring NaN values
                 mean_values = np.nanmean(values_array, axis=0)
                 std_values = np.nanstd(values_array, axis=0)
                 
-                # Plot mean line
+                # plot mean line
                 plt.plot(episode_range, mean_values, 
                         color=colors[i % len(colors)], 
                         label=config_labels[config], 
                         linewidth=2)
                 
-                # Plot shaded region for standard deviation
+                # plot shaded region for std dev
                 plt.fill_between(episode_range, 
                                 mean_values - std_values, 
                                 mean_values + std_values, 
@@ -206,7 +206,7 @@ def generate_plots(experiment_name, templates, configs, config_labels, seeds):
                 plt.grid(True, linestyle='--', alpha=0.7)
                 plt.legend(loc='best')
                 
-                # Save plot
+                # save plot
                 plt.savefig(os.path.join(template_output_dir, f"{metric_name}.png"), dpi=300, bbox_inches='tight')
             plt.close()
         
