@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# script to run Experiment 1 with 6K episodes
+# run Experiment 1 with 6K episodes
 
 echo "Starting Experiment 1 (6K): Ablation Study"
 echo "======================================"
