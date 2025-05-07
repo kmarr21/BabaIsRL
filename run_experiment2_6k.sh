@@ -1,21 +1,20 @@
 #!/bin/bash
 
-# run_experiment2_6k.sh
-# Script to run Experiment 2 with 6K episodes
+# run Experiment 2 with 6K episodes
 
 echo "Starting Experiment 2 (6K): KSM Comparison"
 echo "====================================="
 
-# Templates to run
+# templates to run
 TEMPLATES=("basic_med" "sparse_med" "zipper_med" "bottleneck_med" "bottleneck_hard" "corridors_med")
 
-# Seeds to use
+# seeds to use
 SEEDS=(42 101 202 303 404)
 
-# Directory for experiment results
+# directory for experiment results
 EXP_DIR="experiments/experiment2_6k"
 
-# Function to run a single configuration with retry mechanism
+# run a single configuration with retry mechanism
 run_with_retry() {
     local template=$1
     local config_name=$2
@@ -27,19 +26,19 @@ run_with_retry() {
 
     mkdir -p "$output_dir"
     
-    # Build command (all configs use reward shaping and state augmentation) - note 6000 episodes
+    # build command (all configs use reward shaping and state augmentation) (6k episodes)
     cmd="python train_enhanced_dqn.py --template $template --episodes 6000 --output $output_dir --seed $seed"
     
-    # Add KSM mode if specified
+    # add KSM mode if specified
     if [ "$ksm_mode" != "off" ]; then
         cmd="${cmd} --ksm-mode ${ksm_mode}"
     fi
     
     echo "Running: $cmd"
     
-    # Retry loop
+    # retry loop
     while [ $retry_count -lt $max_retries ]; do
-        # Run the command
+        # run command
         $cmd > "${output_dir}/training.log" 2>&1
         exit_code=$?
         
@@ -57,24 +56,24 @@ run_with_retry() {
     return 1
 }
 
-# Run experiments for each template
+# run experiments for each template
 for template in "${TEMPLATES[@]}"; do
     echo ""
     echo "Starting template: $template"
     echo "------------------------"
     
-    # Create template directory
+    # create template directory
     mkdir -p "${EXP_DIR}/template_${template}"
     
-    # Run each configuration with all seeds
+    # run each configuration with all seeds
     for seed in "${SEEDS[@]}"; do
-        # Full enhanced DQN (reward shaping + state augmentation, no KSM)
+        # full enhanced DQN (reward shaping + state augmentation, no KSM)
         run_with_retry "$template" "full_enhanced_dqn" "off" "$seed"
         
-        # Full enhanced DQN + standard KSM
+        # full enhanced DQN + standard KSM
         run_with_retry "$template" "standard_ksm" "standard" "$seed"
         
-        # Full enhanced DQN + adaptive KSM
+        # full enhanced DQN + adaptive KSM
         run_with_retry "$template" "adaptive_ksm" "adaptive" "$seed"
     done
 done
