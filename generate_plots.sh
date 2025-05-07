@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# generate_plots.sh
 # generates aggregated plots from experiment results
 
 # default to generating plots for both experiments if none specified
