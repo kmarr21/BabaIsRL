@@ -7,26 +7,26 @@ import glob
 import re
 from scipy.ndimage import gaussian_filter1d
 
+# apply gaussian smoothing to data
 def smooth(data, sigma=5):
-    """Apply Gaussian smoothing to data"""
     return gaussian_filter1d(data, sigma=sigma)
 
+# calculate moving avg with specified window
 def calculate_moving_average(values, window=100):
-    """Calculate moving average with the specified window"""
     if len(values) < window:
-        return values  # Return original if not enough data
+        return values  # return original if not enough data
     
     result = np.convolve(values, np.ones(window)/window, mode='valid')
-    # Pad the beginning to maintain original length
+    # pad the beginning to maintain original length
     padding = np.full(window-1, np.nan)
     return np.concatenate([padding, result])
 
+# find all training log files for given template & config
 def find_training_logs(base_dir, template, config, seeds):
-    """Find all training log files for a given template and configuration"""
     result = {}
     
     for seed in seeds:
-        # Try multiple potential patterns
+        # try multiple potential patterns
         patterns = [
             os.path.join(base_dir, f"template_{template}", config, f"seed{seed}", "training_log.csv"),
             os.path.join(base_dir, f"template_{template}", config, f"seed{seed}_*", "training_log.csv"),
@@ -46,11 +46,11 @@ def find_training_logs(base_dir, template, config, seeds):
     
     return result
 
+# process a template and generate plots
 def process_template(experiment_dir, template, configs, config_labels, seeds, output_dir):
-    """Process a template and generate plots"""
     print(f"Processing template: {template}")
     
-    # Metrics to plot
+    # metrics to plot
     metrics_to_plot = [
         ('scores', 'Smoothed Score', 'Score'),
         ('success_rate', 'Success Rate', 'Success Rate'),
@@ -59,28 +59,28 @@ def process_template(experiment_dir, template, configs, config_labels, seeds, ou
         ('episode_length', 'Episode Length', 'Steps per Episode')
     ]
     
-    # Colors for different configurations
+    # colors for different configurations
     colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
     
-    # Extract metrics for each configuration
+    # extract metrics for each configuration
     all_config_metrics = {}
     for config in configs:
         print(f"  Looking for data for configuration: {config}")
         all_config_metrics[config] = {}
         
-        # Find all training log files
+        # find all training log files
         log_files = find_training_logs(experiment_dir, template, config, seeds)
         
         if not log_files:
             print(f"  No log files found for {template}/{config}")
             continue
             
-        # Print found files for debugging
+        # print found files for debugging
         print(f"  Found log files for {config}: {len(log_files)}")
         for seed, file in log_files.items():
             print(f"    Seed {seed}: {file}")
         
-        # Process each log file
+        # process each log file
         for seed, log_file in log_files.items():
             print(f"  Processing file: {log_file}")
             
@@ -88,24 +88,24 @@ def process_template(experiment_dir, template, configs, config_labels, seeds, ou
                 df = pd.read_csv(log_file)
                 episodes = df['episode'].values
                 
-                # Initialize metrics if not already done
+                # initialize metrics if not already done
                 for metric_name, _, _ in metrics_to_plot:
                     if metric_name not in all_config_metrics[config]:
                         all_config_metrics[config][metric_name] = []
                 
-                # Extract and process metrics
-                # Scores
+                # extract and process metrics
+                # scores
                 scores = df['score'].values
                 smoothed_scores = smooth(scores)
                 all_config_metrics[config]['scores'].append((episodes, smoothed_scores))
                 
-                # Success rate
+                # success rate
                 if 'success' in df.columns:
                     success = df['success'].values.astype(float)
                     success_rate = calculate_moving_average(success)
                     all_config_metrics[config]['success_rate'].append((episodes, success_rate))
                 
-                # Wrong key rate
+                # wrong key rate
                 if 'wrong_key_attempts' in df.columns and 'steps' in df.columns:
                     wrong_keys = df['wrong_key_attempts'].values
                     steps = df['steps'].values
@@ -115,13 +115,13 @@ def process_template(experiment_dir, template, configs, config_labels, seeds, ou
                     smoothed_wrong_key_rate = smooth(wrong_key_rate)
                     all_config_metrics[config]['wrong_key_rate'].append((episodes, smoothed_wrong_key_rate))
                 
-                # Crash rate
+                # crash rate
                 if 'termination_reason' in df.columns:
                     crashes = (df['termination_reason'] == 'enemy_collision').astype(float)
                     crash_rate = calculate_moving_average(crashes)
                     all_config_metrics[config]['crash_rate'].append((episodes, crash_rate))
                 
-                # Episode length
+                # episode length
                 if 'steps' in df.columns:
                     steps = df['steps'].values
                     smoothed_steps = smooth(steps, sigma=15)
@@ -130,7 +130,7 @@ def process_template(experiment_dir, template, configs, config_labels, seeds, ou
             except Exception as e:
                 print(f"Error processing {log_file}: {e}")
     
-    # Generate plots for each metric
+    # generate plots for each metric
     for metric_name, title, y_label in metrics_to_plot:
         print(f"  Generating {metric_name} plot...")
         
@@ -148,15 +148,15 @@ def process_template(experiment_dir, template, configs, config_labels, seeds, ou
                 print(f"    No {metric_name} data for {config}")
                 continue
             
-            # Calculate mean and standard deviation across seeds
+            # calculate mean and std dev across seeds
             max_len = max(len(eps) for eps, _ in metrics) if metrics else 0
             if max_len == 0:
                 continue
             
-            # Create a common x-axis (episodes)
+            # create a common x-axis (episodes)
             episode_range = np.arange(1, max_len + 1)
             
-            # Align and collect values for all seeds
+            # align and collect values for all seeds
             values_array = []
             for episodes, values in metrics:
                 # Only use data up to the maximum common length
@@ -171,17 +171,17 @@ def process_template(experiment_dir, template, configs, config_labels, seeds, ou
             
             values_array = np.array(values_array)
             
-            # Calculate statistics, ignoring NaN values
+            # calculate stats, ignoring NaN values
             mean_values = np.nanmean(values_array, axis=0)
             std_values = np.nanstd(values_array, axis=0)
             
-            # Plot mean line
+            # plot mean line
             plt.plot(episode_range, mean_values, 
                     color=colors[i % len(colors)], 
                     label=config_labels[i], 
                     linewidth=2)
             
-            # Plot shaded region for standard deviation
+            # plot shaded region for std dev
             plt.fill_between(episode_range, 
                             mean_values - std_values, 
                             mean_values + std_values, 
@@ -197,7 +197,7 @@ def process_template(experiment_dir, template, configs, config_labels, seeds, ou
             plt.grid(True, linestyle='--', alpha=0.7)
             plt.legend(loc='best')
             
-            # Save plot
+            # save plot
             plt.savefig(os.path.join(output_dir, f"{metric_name}.png"), dpi=300, bbox_inches='tight')
         plt.close()
     
@@ -210,22 +210,22 @@ def main():
     parser.add_argument("--data-dir", default="~/BabaIsRL/experiments", help="Directory containing experiment data")
     args = parser.parse_args()
     
-    # Expand paths
+    # expand paths
     output_dir = os.path.expanduser(args.output_dir)
     data_dir = os.path.expanduser(args.data_dir)
     
-    # Add timestamp to output directory
+    # add timestamp to output directory
     timestamp = os.path.basename(output_dir)
     if "plots" in timestamp and "_" not in timestamp:
         import time
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         output_dir = f"{output_dir}_{timestamp}"
     
-    # Templates and seeds
+    # templates and seeds
     templates = ["basic_med", "sparse_med", "zipper_med", "bottleneck_med", "bottleneck_hard", "corridors_med"]
     seeds = [42, 101, 202, 303, 404]
     
-    # Process neuro_symbolic
+    # process neuro_symbolic
     experiment = "neuro_symbolic"
     experiment_dir = os.path.join(data_dir, experiment)
     experiment_output_dir = os.path.join(output_dir, experiment)
@@ -239,7 +239,7 @@ def main():
         os.makedirs(template_output_dir, exist_ok=True)
         process_template(experiment_dir, template, configs, config_labels, seeds, template_output_dir)
     
-    # Process neuro_symbolic_comparison if it exists
+    # process neuro_symbolic_comparison if it exists
     comparison_experiment = "neuro_symbolic_comparison"
     comparison_dir = os.path.join(data_dir, comparison_experiment)
     if os.path.exists(comparison_dir):
@@ -251,7 +251,7 @@ def main():
             os.makedirs(template_output_dir, exist_ok=True)
             process_template(comparison_dir, template, configs, config_labels, seeds, template_output_dir)
     
-    # Create zip archives for each template
+    # create zip archives for each template
     for experiment in ["neuro_symbolic", "neuro_symbolic_comparison"]:
         experiment_dir = os.path.join(data_dir, experiment)
         if not os.path.exists(experiment_dir):
@@ -270,7 +270,7 @@ def main():
                             arcname = os.path.relpath(file_path, experiment_output_dir)
                             zipf.write(file_path, arcname)
     
-    # Also collect all CSV files
+    # also collect all CSV files
     csv_dir = os.path.join(output_dir, "csv_files")
     os.makedirs(csv_dir, exist_ok=True)
     
@@ -288,7 +288,7 @@ def main():
                 os.makedirs(config_csv_dir, exist_ok=True)
                 
                 for seed in seeds:
-                    # Find CSV
+                    # find CSV
                     log_files = find_training_logs(experiment_dir, template, config, [seed])
                     if seed in log_files:
                         log_file = log_files[seed]
@@ -298,7 +298,7 @@ def main():
                         shutil.copy2(log_file, dest_file)
                         print(f"Copied {log_file} to {dest_file}")
     
-    # Create zip of CSV files
+    # create zip of CSV files
     import zipfile
     csv_zip = os.path.join(output_dir, "neurosymbolic_csv_files.zip")
     with zipfile.ZipFile(csv_zip, 'w', zipfile.ZIP_DEFLATED) as zipf:
