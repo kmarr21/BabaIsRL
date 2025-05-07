@@ -1,9 +1,8 @@
 #!/bin/bash
 
-# monitor_experiments.sh
-# Script to check the status of running experiments
+# check the status of running experiments
 
-# Check if experiment PIDs exist
+# check if experiment PIDs exist
 if [ ! -f logs/experiment1_pid.txt ] || [ ! -f logs/experiment2_pid.txt ]; then
     echo "Experiment PID files not found. Experiments may not be running."
     exit 1
@@ -12,7 +11,7 @@ fi
 EXP1_PID=$(cat logs/experiment1_pid.txt)
 EXP2_PID=$(cat logs/experiment2_pid.txt)
 
-# Function to check if a process is running
+# function to check if a process is running
 is_running() {
     if ps -p "$1" > /dev/null; then
         return 0  # Process is running
@@ -21,7 +20,7 @@ is_running() {
     fi
 }
 
-# Check status
+# check status
 if is_running "$EXP1_PID"; then
     echo "Experiment 1 is running (PID: $EXP1_PID)"
 else
@@ -34,11 +33,11 @@ else
     echo "Experiment 2 is not running (PID was: $EXP2_PID)"
 fi
 
-# Find the most recent log files
+# find the most recent log files
 EXP1_LOG=$(ls -t logs/experiment1_*.log 2>/dev/null | head -n 1)
 EXP2_LOG=$(ls -t logs/experiment2_*.log 2>/dev/null | head -n 1)
 
-# Show recent activity from log files
+# show recent activity from log files
 if [ -n "$EXP1_LOG" ]; then
     echo -e "\nRecent activity from Experiment 1:"
     tail -n 10 "$EXP1_LOG"
