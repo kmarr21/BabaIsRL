@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# experiment_runner_6k.sh
-# run all 6K episodes experiments in the background!
+# run all 6K episodes experiments in the background
 
 # create directory structure (in case not there)
 mkdir -p experiments/experiment1_6k experiments/experiment2_6k logs plots/experiment1_6k plots/experiment2_6k
