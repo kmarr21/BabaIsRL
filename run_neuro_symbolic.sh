@@ -1,21 +1,20 @@
 #!/bin/bash
 
-# run_neuro_symbolic.sh
-# Script to run Neurosymbolic Experiment comparing Enhanced DQN vs Neurosymbolic DQN
+# run neurosymbolic experiment comparing enhanced DQN vs NDT-DQN
 
 echo "Starting Neurosymbolic DQN Experiment"
 echo "====================================="
 
-# Templates to run
+# templates to run
 TEMPLATES=("basic_med" "sparse_med" "zipper_med" "bottleneck_med" "bottleneck_hard" "corridors_med")
 
-# Seeds to use
+# seeds to use
 SEEDS=(42 101 202 303 404)
 
-# Directory for experiment results
+# directory for experiment results
 EXP_DIR="experiments/neuro_symbolic"
 
-# Function to run a single configuration with retry mechanism
+# function to run a single configuration w/ retry mechanism
 run_with_retry() {
     local template=$1
     local config_name=$2
@@ -27,20 +26,20 @@ run_with_retry() {
 
     mkdir -p "$output_dir"
     
-    # Build command
+    # build command
     if [ "$use_neuro_symbolic" = true ]; then
         # Neurosymbolic DQN with gradual guidance decrease
         cmd="python train_neuro_symbolic.py --template $template --episodes 5000 --output $output_dir --seed $seed --gradual-guidance"
     else
-        # Enhanced DQN baseline 
+        # enhanced DQN baseline 
         cmd="python train_enhanced_dqn.py --template $template --episodes 5000 --output $output_dir --seed $seed"
     fi
     
     echo "Running: $cmd"
     
-    # Retry loop
+    # retry loop
     while [ $retry_count -lt $max_retries ]; do
-        # Run the command
+        # run command
         $cmd > "${output_dir}/training.log" 2>&1
         exit_code=$?
         
@@ -58,21 +57,21 @@ run_with_retry() {
     return 1
 }
 
-# Run experiments for each template
+# run experiments for each template
 for template in "${TEMPLATES[@]}"; do
     echo ""
     echo "Starting template: $template"
     echo "------------------------"
     
-    # Create template directory
+    # create template directory
     mkdir -p "${EXP_DIR}/template_${template}"
     
-    # Run each configuration with all seeds
+    # run each configuration with all seeds
     for seed in "${SEEDS[@]}"; do
-        # Enhanced DQN (baseline)
+        # enhanced DQN (baseline)
         run_with_retry "$template" "enhanced_dqn" false "$seed"
         
-        # Neurosymbolic DQN with gradual guidance
+        # NDT-DQN with gradual guidance
         run_with_retry "$template" "neurosymbolic_dqn" true "$seed"
     done
 done
