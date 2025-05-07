@@ -1,5 +1,3 @@
-# train_neuro_symbolic.py
-
 import os
 import numpy as np
 import torch
@@ -14,6 +12,7 @@ from tqdm import tqdm
 from template_lifo_corridors import TemplateLIFOCorridorsEnv
 from neurosymbolic_agent import NeurosymbolicDQNAgent
 
+# train NDT-DQN agent on LIFO environment
 def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200, 
                          eps_start=1.0, eps_end=0.005, eps_decay=0.998, 
                          render=False, checkpoint_dir='neuro_symbolic_results',
@@ -24,27 +23,25 @@ def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200,
                          gradual_guidance_decrease=False,
                          min_guidance_weight=0.3,
                          guidance_decay=0.9999):
-    """Train Neurosymbolic DQN agent on LIFO Corridors environment."""
-    
-    # Create output directory
+
+    # create output directory
     os.makedirs(checkpoint_dir, exist_ok=True)
     
-    # Log file for detailed statistics
+    # log file for detailed statistics
     log_file = os.path.join(checkpoint_dir, 'training_log.csv')
     
-    # Create environment
-    env = TemplateLIFOCorridorsEnv(template_name=template_name, render_enabled=False, 
-                                   verbose=False, use_reward_shaping=use_reward_shaping)
+    # create environment
+    env = TemplateLIFOCorridorsEnv(template_name=template_name, render_enabled=False, verbose=False, use_reward_shaping=use_reward_shaping)
     
-    # Get state and action sizes
+    # get state and action sizes
     state, _ = env.reset()
     
-    # Create a temporary agent to get the preprocessed state size
+    # create a temporary agent to get the preprocessed state size
     temp_agent = NeurosymbolicDQNAgent(0, 0, use_augmented_state=not use_base_dqn)
     state_size = len(temp_agent.preprocess_state(state))
     action_size = env.action_space.n
     
-    # Print configuration
+    # print config
     dqn_type = "Base DQN" if use_base_dqn else "Enhanced DQN"
     guidance_type = "Gradually decreasing" if gradual_guidance_decrease else "Fixed"
     reward_shaping_str = "enabled" if use_reward_shaping else "disabled"
@@ -55,7 +52,7 @@ def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200,
     if gradual_guidance_decrease:
         print(f"Guidance weight will decrease to {min_guidance_weight} with decay factor {guidance_decay}")
     
-    # Create agent
+    # create agent
     agent = NeurosymbolicDQNAgent(
         state_size=state_size, 
         action_size=action_size, 
@@ -66,16 +63,15 @@ def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200,
         use_base_dqn=use_base_dqn,
         gradual_guidance_decrease=gradual_guidance_decrease,
         min_guidance_weight=min_guidance_weight,
-        guidance_decay=guidance_decay
-    )
+        guidance_decay=guidance_decay)
     
-    # Set template context for logging
+    # set template context for logging
     agent.set_template_context(template_name)
     
-    # Initialize epsilon
+    # initialize epsilon
     eps = eps_start
     
-    # Lists and metrics to track progress
+    # lists and metrics to track progress
     scores = []
     scores_window = deque(maxlen=100)
     eps_history = []
@@ -86,14 +82,14 @@ def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200,
     wrong_key_attempts = []
     guidance_weight_history = []
     
-    # For symbolic decision tracking
+    # for symbolic decision tracking
     neural_decisions = []
     guided_decisions = []
     
-    # Track time
+    # track time
     start_time = time.time()
     
-    # Create DataFrame for logging
+    # create DF for logging
     log_data = {
         'episode': [], 
         'steps': [], 
@@ -109,37 +105,37 @@ def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200,
         'guided_decision_rate': []
     }
     
-    # Define progress bar
+    # progress bar
     pbar = tqdm(total=n_episodes, desc=f"Template: {template_name}", unit="ep")
     
-    # Training loop
+    # TRAINING LOOP
     for i_episode in range(1, n_episodes+1):
         state, _ = env.reset()
         score = 0
         success = False
         
-        # Episode statistics
+        # episode stats
         steps = 0
         keys_collected = 0
         doors_opened = 0
         wrong_key_count = 0
         termination_reason = 'incomplete'
         
-        # Reset tracking variables
+        # reset tracking variables
         decision_counts = {'neural': 0, 'guided': 0}
         
-        # Initialize total reward tracking for this episode
+        # initialize total reward tracking for this episode
         agent.dqn_agent.total_reward = 0
         
         for t in range(max_t):
-            # Select and perform action
+            # select and perform action
             action = agent.act(state, eps)
             next_state, reward, done, _, info = env.step(action)
             
-            # Update statistics
+            # update stats
             steps = t + 1
             
-            # Track symbolic decision type
+            # track symbolic decision type
             if agent.decision_history and agent.decision_history[-1]['mode'] == 'guided':
                 decision_counts['guided'] += 1
             else:
@@ -160,15 +156,15 @@ def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200,
             if 'terminated_reason' in info:
                 termination_reason = info['terminated_reason']
             
-            # Store transition and learn
+            # store transition and learn
             agent.step(state, action, reward, next_state, done, info)
             
-            # Update state and score
+            # update state and score
             state = next_state
             score += reward
             agent.dqn_agent.total_reward = score  # Update total reward for the episode
             
-            # Render if enabled
+            # render if enabled
             if render:
                 env.render()
                 time.sleep(0.01)  # Slow down rendering
@@ -176,11 +172,11 @@ def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200,
             if done:
                 break
         
-        # Get current guidance weight (may have been decreased if using gradual decrease)
+        # get current guidance weight (may have been decreased if using gradual decrease)
         guidance_weight = agent.symbolic_guidance_weight
         guidance_weight_history.append(guidance_weight)
         
-        # Calculate decision rates
+        # calc decision rates
         total_decisions = sum(decision_counts.values())
         neural_rate = decision_counts['neural'] / total_decisions if total_decisions > 0 else 0
         guided_rate = decision_counts['guided'] / total_decisions if total_decisions > 0 else 0
@@ -188,7 +184,7 @@ def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200,
         neural_decisions.append(neural_rate)
         guided_decisions.append(guided_rate)
         
-        # Update metrics
+        # update metrics
         scores_window.append(score)
         scores.append(score)
         eps_history.append(eps)
@@ -196,7 +192,7 @@ def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200,
         success_history.append(1 if success else 0)
         wrong_key_attempts.append(wrong_key_count)
         
-        # Calculate success rate and update agent's knowledge of it
+        # calculate success rate and update agent's knowledge of it
         if len(success_history) >= 100:
             success_rate = sum(success_history[-100:]) / 100
         else:
@@ -205,7 +201,7 @@ def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200,
         agent.dqn_agent.current_success_rate = success_rate
         success_rate_history.append(success_rate)
         
-        # Log data for this episode
+        # log data for this episode
         log_data['episode'].append(i_episode)
         log_data['steps'].append(steps)
         log_data['score'].append(score)
@@ -219,22 +215,21 @@ def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200,
         log_data['neural_decision_rate'].append(neural_rate)
         log_data['guided_decision_rate'].append(guided_rate)
         
-        # Update epsilon
+        # update epsilon
         eps = max(eps_end, eps_decay * eps)
         
-        # Check if episode was a win
+        # check if episode was a win
         if success:
             win_episodes.append(i_episode)
         
-        # Update progress bar
+        # update progress bar
         pbar.update(1)
         pbar.set_postfix({
             'Avg Score': f"{np.mean(scores_window):.2f}", 
             'Success Rate': f"{success_rate:.2f}",
-            'G-Weight': f"{guidance_weight:.2f}"
-        })
+            'G-Weight': f"{guidance_weight:.2f}"})
         
-        # Print progress
+        # progress
         if i_episode % 100 == 0:
             wrong_key_rate = sum(wrong_key_attempts[-100:]) / max(1, sum(episode_steps[-100:]))
             elapsed = time.time() - start_time
@@ -246,75 +241,74 @@ def train_neuro_symbolic(template_name="basic_med", n_episodes=4000, max_t=200,
                   f"G-Weight: {guidance_weight:.2f} | "
                   f"Time: {elapsed:.1f}s")
             
-            # Print symbolic decision stats
+            # print symbolic decision stats
             neural_avg = np.mean(neural_decisions[-100:]) if neural_decisions else 0
             guided_avg = np.mean(guided_decisions[-100:]) if guided_decisions else 0
             print(f"Decision Rates: Neural {neural_avg:.2f}, Guided {guided_avg:.2f}")
         
-        # Periodically save checkpoint and generate plots
+        # periodically save checkpoint & generate plots
         if i_episode % eval_freq == 0:
             # Save checkpoint
             agent.save(f"{checkpoint_dir}/dqn_checkpoint_{i_episode}.pth")
             
-            # Generate and save plots
+            # generate & save plots
             generate_training_plots(
                 scores, eps_history, success_rate_history, wrong_key_attempts,
                 episode_steps, guidance_weight_history, neural_decisions, guided_decisions,
                 checkpoint_dir, i_episode, template_name, win_episodes, success_history
             )
             
-            # Save log to CSV
+            # save log to CSV
             pd.DataFrame(log_data).to_csv(log_file, index=False)
     
-    # Close progress bar
+    # close progress bar
     pbar.close()
     
-    # Final save
+    # final save
     agent.save(f"{checkpoint_dir}/dqn_final.pth")
     
-    # Close environment
+    # close environment
     env.close()
     
-    # Final plots
+    # final plots
     generate_training_plots(
         scores, eps_history, success_rate_history, wrong_key_attempts,
         episode_steps, guidance_weight_history, neural_decisions, guided_decisions,
-        checkpoint_dir, n_episodes, template_name, win_episodes, success_history
-    )
+        checkpoint_dir, n_episodes, template_name, win_episodes, success_history)
     
-    # Final log save
+    # final log save
     pd.DataFrame(log_data).to_csv(log_file, index=False)
     
-    # Print final statistics
+    # print final stats
     print("\nTraining complete!")
     print(f"Total win episodes: {len(win_episodes)}")
     if len(win_episodes) > 0:
         print(f"First win on episode: {win_episodes[0]}")
     
-    # Calculate final success rates
+    # calculate final success rates
     final_success_rate = sum(success_history[-min(100, len(success_history)):]) / min(100, len(success_history))
     print(f"Final success rate (last 100 episodes): {final_success_rate:.2f}")
     
-    # Calculate average steps for successful episodes
+    # calculate average steps for successful episodes
     successful_steps = [s for s, success in zip(episode_steps, success_history) if success]
     if successful_steps:
         avg_steps = sum(successful_steps) / len(successful_steps)
         print(f"Average steps for successful episodes: {avg_steps:.1f}")
     
-    # Calculate wrong key attempt rate
+    # calculate wrong key attempt rate
     if episode_steps:
         wrong_key_rate = sum(wrong_key_attempts) / sum(episode_steps)
         print(f"Wrong key attempt rate: {wrong_key_rate:.4f} (attempts per step)")
     
     return scores, win_episodes, success_rate_history, wrong_key_attempts
 
+# generate plots from training
 def generate_training_plots(scores, eps_history, success_rate_history, wrong_key_attempts,
                            episode_steps, guidance_weight_history, neural_decisions, guided_decisions,
                            output_dir, episode_num, template_name, win_episodes, success_history):
-    """Generate plots for neurosymbolic agent training."""
     plt.figure(figsize=(15, 20))
     
-    # Plot 1: Training Scores
+    # training scores
     plt.subplot(4, 2, 1)
     plt.plot(np.arange(len(scores)), scores)
     plt.axhline(y=0, color='r', linestyle='-', alpha=0.3)  # Zero line
@@ -322,24 +316,24 @@ def generate_training_plots(scores, eps_history, success_rate_history, wrong_key
     plt.xlabel('Episode #')
     plt.title(f'Neurosymbolic DQN Training Scores - {template_name} Template')
     
-    # Plot 2: Success Rate
+    # success rate
     plt.subplot(4, 2, 2)
     plt.plot(np.arange(len(success_rate_history)), success_rate_history)
     plt.ylabel('Success Rate')
     plt.xlabel('Episode #')
     plt.title('Training Success Rate')
     
-    # Plot 3: Epsilon Decay
+    # epsilon decay
     plt.subplot(4, 2, 3)
     plt.plot(np.arange(len(eps_history)), eps_history)
     plt.ylabel('Epsilon')
     plt.xlabel('Episode #')
     plt.title('Epsilon Decay')
     
-    # Plot 4: Wrong Key Attempts
+    # wrong key attempts
     plt.subplot(4, 2, 4)
     if len(wrong_key_attempts) > 0:
-        # Calculate wrong key rate over time (sliding window)
+        # wrong key rate over time (sliding window)
         window_size = min(100, len(wrong_key_attempts))
         wrong_key_rates = []
         for i in range(len(wrong_key_attempts)):
@@ -354,10 +348,10 @@ def generate_training_plots(scores, eps_history, success_rate_history, wrong_key
         plt.xlabel('Episode #')
         plt.title(f'Wrong Key Attempt Rate (per step, window={window_size})')
     
-    # Plot 5: Episode Length
+    # episode length
     plt.subplot(4, 2, 5)
     if len(episode_steps) > 0:
-        # Calculate average episode length over time (sliding window)
+        # average episode length over time (sliding window)
         window_size = min(100, len(episode_steps))
         avg_steps = []
         for i in range(len(episode_steps)):
@@ -372,7 +366,7 @@ def generate_training_plots(scores, eps_history, success_rate_history, wrong_key
         plt.xlabel('Episode #')
         plt.title(f'Average Episode Length (window={window_size})')
     
-    # Plot 6: Guidance Weight History
+    #guidance weight history
     plt.subplot(4, 2, 6)
     if len(guidance_weight_history) > 0:
         plt.plot(np.arange(len(guidance_weight_history)), guidance_weight_history)
@@ -380,7 +374,7 @@ def generate_training_plots(scores, eps_history, success_rate_history, wrong_key
         plt.xlabel('Episode #')
         plt.title('Symbolic Guidance Weight')
     
-    # Plot 7: Neural vs Guided Decision Rates
+    # neural vs guided decision rates
     plt.subplot(4, 2, 7)
     if len(neural_decisions) > 0 and len(guided_decisions) > 0:
         plt.plot(np.arange(len(neural_decisions)), neural_decisions, label='Neural')
@@ -390,9 +384,9 @@ def generate_training_plots(scores, eps_history, success_rate_history, wrong_key
         plt.title('Neural vs Guided Decision Rates')
         plt.legend()
     
-    # Plot 8: Specialized Stats
+    # specialized stats
     plt.subplot(4, 2, 8)
-    # Smoothed success rate
+    # smoothed success rate
     window_size = min(50, len(success_rate_history))
     if len(success_rate_history) >= window_size:
         smoothed_rate = np.convolve(success_rate_history, np.ones(window_size)/window_size, mode='valid')
@@ -410,7 +404,7 @@ def generate_training_plots(scores, eps_history, success_rate_history, wrong_key
     plt.savefig(f"{output_dir}/training_progress_{episode_num}.png")
     plt.close()
     
-    # Moving average of scores (smoother)
+    # moving avg of scores (smoother)
     plt.figure(figsize=(10, 6))
     window_size = min(100, len(scores))
     if len(scores) >= window_size:
@@ -425,9 +419,7 @@ def generate_training_plots(scores, eps_history, success_rate_history, wrong_key
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train Neurosymbolic DQN agent on LIFO Corridors Environment')
-    parser.add_argument('--template', type=str, default="basic_med", 
-                        choices=["basic_med", "sparse_med", "zipper_med", "bottleneck_med", "bottleneck_hard", "corridors_med"],
-                        help='Template to use')
+    parser.add_argument('--template', type=str, default="basic_med", choices=["basic_med", "sparse_med", "zipper_med", "bottleneck_med", "bottleneck_hard", "corridors_med"], help='Template to use')
     parser.add_argument('--episodes', type=int, default=4000, help='Number of episodes')
     parser.add_argument('--render', action='store_true', help='Render the environment')
     parser.add_argument('--output', type=str, default='neuro_symbolic_results', help='Output directory')
@@ -442,7 +434,7 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    # Set random seeds
+    # set random seeds
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     random.seed(args.seed)
@@ -455,7 +447,7 @@ if __name__ == "__main__":
     print(f"Reward shaping: {'disabled' if args.no_reward_shaping else 'enabled'}")
     print(f"Guidance weight: {'Gradually decreasing' if args.gradual_guidance else 'Fixed'}")
     
-    # Run training with parameters
+    # run training with parameters
     scores, win_episodes, success_rates, wrong_key_attempts = train_neuro_symbolic(
         template_name=args.template,
         n_episodes=args.episodes, 
