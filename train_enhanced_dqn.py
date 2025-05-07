@@ -12,27 +12,26 @@ from tqdm import tqdm
 from template_lifo_corridors import TemplateLIFOCorridorsEnv
 from dqn_agent_enhanced import DQNAgentEnhanced
 
+# train DQN agent on custom LIFO corridors environment
 def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, eps_start=1.0, eps_end=0.005, eps_decay=0.998, 
                        render=False, checkpoint_dir='enhanced_results', eval_freq=100, eval_episodes=10,
                        use_augmented_state=True, use_reward_shaping=True, ksm_mode="off"):
-    """Train DQN agent on Enhanced LIFO Corridors environment.
-    
-    Args:
-        template_name: Name of template to use
-        n_episodes (int): maximum number of training episodes
-        max_t (int): maximum number of timesteps per episode
-        eps_start (float): starting value of epsilon for epsilon-greedy action selection
-        eps_end (float): minimum value of epsilon
-        eps_decay (float): multiplicative factor for decreasing epsilon (changed to 0.998)
-        render (bool): whether to render the environment during training
-        checkpoint_dir (str): directory to save checkpoints and results
-        eval_freq (int): frequency of evaluation during training (changed to 100)
-        eval_episodes (int): number of episodes to run during evaluation
-        use_augmented_state (bool): whether to use augmented state representation
-        use_reward_shaping (bool): whether to use reward shaping
-        ksm_mode (str): Key Selection Metric mode ("off", "standard", or "adaptive")
     """
-    # Create directory for results
+    template_name: name of template to use
+    n_episodes (int): max number of training episodes
+    max_t (int): max number of timesteps per episode
+    eps_start (float): starting value of epsilon for epsilon-greedy action selection
+    eps_end (float): minimum value of epsilon
+    eps_decay (float): factor for decreasing epsilon
+    render (bool): whether to render the environment during training
+    checkpoint_dir (str): directory to save checkpoints and results
+    eval_freq (int): frequency of evaluation during training
+    eval_episodes (int): number of episodes to run during evaluation
+    use_augmented_state (bool): whether to use augmented state representation
+    use_reward_shaping (bool): whether to use reward shaping
+    ksm_mode (str): Key Selection Metric mode ("off", "standard", or "adaptive")
+    """
+    # create directory for results
     aug_str = "augmented" if use_augmented_state else "basic"
     shaping_str = "shaped" if use_reward_shaping else "raw"
     ksm_str = ksm_mode if ksm_mode != "off" else "no_ksm"
@@ -40,18 +39,17 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
     output_dir = f"{checkpoint_dir}_{template_name}_{aug_str}_{shaping_str}_{ksm_str}"
     os.makedirs(output_dir, exist_ok=True)
     
-    # Log file for detailed statistics
+    # log file for detailed stats
     log_file = os.path.join(output_dir, 'training_log.csv')
     
-    # Create environment
+    # create environment
     env = TemplateLIFOCorridorsEnv(template_name=template_name, render_enabled=False, 
                                    verbose=False, use_reward_shaping=use_reward_shaping)
     
-    # Get state and action sizes
+    # get state and action sizes
     state, _ = env.reset()
-    # Create a temporary agent to get the preprocessed state size
-    temp_agent = DQNAgentEnhanced(0, 0, use_augmented_state=use_augmented_state, 
-                               ksm_mode=ksm_mode)
+    # create a temporary agent to get the preprocessed state size
+    temp_agent = DQNAgentEnhanced(0, 0, use_augmented_state=use_augmented_state, ksm_mode=ksm_mode)
     state_size = len(temp_agent.preprocess_state(state))
     action_size = env.action_space.n
     
@@ -60,19 +58,19 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
     print(f"Reward shaping: {shaping_str}")
     print(f"Key Selection Metric (KSM): {ksm_mode}")
     
-    # Create agent
+    # create agent
     agent = DQNAgentEnhanced(state_size=state_size, action_size=action_size, 
                           seed=0, use_augmented_state=use_augmented_state,
                           ksm_mode=ksm_mode)
     
-    # Set template context for logging in adaptive KSM
+    # set template context for logging in adaptive KSM
     if ksm_mode == "adaptive":
         agent.set_template_context(template_name)
     
-    # Initialize epsilon
+    # initialize epsilon
     eps = eps_start
     
-    # Lists and metrics to track progress
+    # lists and metrics to track progress
     scores = []
     scores_window = deque(maxlen=100)
     eps_history = []
@@ -82,15 +80,15 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
     success_rate_history = []
     wrong_key_attempts = []
     
-    # For evaluation metrics
+    # for evaluation metrics
     eval_success_rates = []
     eval_scores = []
     eval_episodes_x = []
     
-    # Track time
+    # track time
     start_time = time.time()
     
-    # Create DataFrame for logging
+    # create DF for logging
     log_data = {
         'episode': [], 
         'steps': [], 
@@ -103,31 +101,31 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
         'termination_reason': []
     }
     
-    # Define progress bar
+    # progress bar
     pbar = tqdm(total=n_episodes, desc=f"Template: {template_name}", unit="ep")
     
-    # Training loop
+    # TRAINING LOOP
     for i_episode in range(1, n_episodes+1):
         state, _ = env.reset()
         score = 0
         success = False
         
-        # Episode statistics
+        # episode stats
         steps = 0
         keys_collected = 0
         doors_opened = 0
         wrong_key_count = 0
         termination_reason = 'incomplete'
         
-        # Initialize total reward tracking for this episode
+        # initialize total reward tracking for this episode
         agent.total_reward = 0
         
         for t in range(max_t):
-            # Select and perform action
+            # select and perform action
             action = agent.act(state, eps)
             next_state, reward, done, _, info = env.step(action)
             
-            # Update statistics
+            # update stats
             steps = t + 1
             if 'collected_key' in info:
                 keys_collected += 1
@@ -144,23 +142,23 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
             if 'terminated_reason' in info:
                 termination_reason = info['terminated_reason']
             
-            # Store transition and learn
+            # store transition and learn
             agent.step(state, action, reward, next_state, done, info)
             
-            # Update state and score
+            # update state and score
             state = next_state
             score += reward
             agent.total_reward = score  # Update total reward for the episode
             
-            # Render if enabled
+            # render if enabled
             if render:
                 env.render()
-                time.sleep(0.01)  # Slow down rendering
+                time.sleep(0.01) # slow down rendering
             
             if done:
                 break
         
-        # Update metrics
+        # update metrics
         scores_window.append(score)
         scores.append(score)
         eps_history.append(eps)
@@ -168,7 +166,7 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
         success_history.append(1 if success else 0)
         wrong_key_attempts.append(wrong_key_count)
         
-        # Calculate success rate and update agent's knowledge of it
+        # calc success rate and update agent's knowledge of it
         if len(success_history) >= 100:
             success_rate = sum(success_history[-100:]) / 100
         else:
@@ -177,7 +175,7 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
         agent.current_success_rate = success_rate
         success_rate_history.append(success_rate)
         
-        # Log data for this episode
+        # log data for this episode
         log_data['episode'].append(i_episode)
         log_data['steps'].append(steps)
         log_data['score'].append(score)
@@ -188,22 +186,20 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
         log_data['wrong_key_attempts'].append(wrong_key_count)
         log_data['termination_reason'].append(termination_reason)
         
-        # Update epsilon
+        # update epsilon
         eps = max(eps_end, eps_decay * eps)
         
-        # Check if episode was a win
-        if success:
-            win_episodes.append(i_episode)
+        # check if episode was a win
+        if success: win_episodes.append(i_episode)
         
-        # Update progress bar
+        # update progress bar
         pbar.update(1)
         pbar.set_postfix({
             'Avg Score': f"{np.mean(scores_window):.2f}", 
             'Success Rate': f"{success_rate:.2f}",
-            'Epsilon': f"{eps:.2f}"
-        })
+            'Epsilon': f"{eps:.2f}"})
         
-        # Print progress
+        # print progress
         if i_episode % 100 == 0:
             wrong_key_rate = sum(wrong_key_attempts[-100:]) / max(1, sum(episode_steps[-100:]))
             elapsed = time.time() - start_time
@@ -214,11 +210,9 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
                   f"Epsilon: {eps:.3f} | "
                   f"Time: {elapsed:.1f}s")
         
-        # Periodically evaluate agent
+        # periodically evaluate agent
         if i_episode % eval_freq == 0:
-            eval_success_rate, eval_avg_score, eval_wrong_key_rate = evaluate_agent(
-                agent, env, n_episodes=eval_episodes
-            )
+            eval_success_rate, eval_avg_score, eval_wrong_key_rate = evaluate_agent(agent, env, n_episodes=eval_episodes)
             
             eval_success_rates.append(eval_success_rate)
             eval_scores.append(eval_avg_score)
@@ -229,63 +223,61 @@ def train_enhanced_dqn(template_name="basic_med", n_episodes=15000, max_t=200, e
             print(f"  Average Score: {eval_avg_score:.2f}")
             print(f"  Wrong Key Rate: {eval_wrong_key_rate:.4f}")
             
-            # Save checkpoint
+            # save checkpoint
             agent.save(f"{output_dir}/dqn_checkpoint_{i_episode}.pth")
             
-            # Generate and save plots
+            # generate and save plots
             generate_training_plots(
                 scores, eps_history, success_rate_history, wrong_key_attempts,
                 episode_steps, eval_episodes_x, eval_success_rates, eval_scores,
-                output_dir, i_episode, template_name, win_episodes, success_history
-            )
+                output_dir, i_episode, template_name, win_episodes, success_history)
             
-            # Save log to CSV
+            # save log to CSV
             pd.DataFrame(log_data).to_csv(log_file, index=False)
     
-    # Close progress bar
+    # close progress bar
     pbar.close()
     
-    # Final save
+    # final save
     agent.save(f"{output_dir}/dqn_final.pth")
     
-    # Close environment
+    # close environment
     env.close()
     
-    # Final plots
+    # final plots
     generate_training_plots(
         scores, eps_history, success_rate_history, wrong_key_attempts,
         episode_steps, eval_episodes_x, eval_success_rates, eval_scores,
-        output_dir, n_episodes, template_name, win_episodes, success_history
-    )
+        output_dir, n_episodes, template_name, win_episodes, success_history)
     
-    # Final log save
+    # final log save
     pd.DataFrame(log_data).to_csv(log_file, index=False)
     
-    # Print final statistics
+    # rrint final statistics
     print("\nTraining complete!")
     print(f"Total win episodes: {len(win_episodes)}")
     if len(win_episodes) > 0:
         print(f"First win on episode: {win_episodes[0]}")
     
-    # Calculate final success rates
+    # calc final success rates
     final_success_rate = sum(success_history[-min(100, len(success_history)):]) / min(100, len(success_history))
     print(f"Final success rate (last 100 episodes): {final_success_rate:.2f}")
     
-    # Calculate average steps for successful episodes
+    # calculate avg steps for successful episodes
     successful_steps = [s for s, success in zip(episode_steps, success_history) if success]
     if successful_steps:
         avg_steps = sum(successful_steps) / len(successful_steps)
         print(f"Average steps for successful episodes: {avg_steps:.1f}")
     
-    # Calculate wrong key attempt rate
+    # calculate wrong key attempt rate
     if episode_steps:
         wrong_key_rate = sum(wrong_key_attempts) / sum(episode_steps)
         print(f"Wrong key attempt rate: {wrong_key_rate:.4f} (attempts per step)")
     
     return scores, win_episodes, success_rate_history, wrong_key_attempts
 
+# evaluate agent w/o exploration
 def evaluate_agent(agent, env, n_episodes=10):
-    """Evaluate the agent without exploration."""
     success_count = 0
     total_score = 0
     total_steps = 0
@@ -321,13 +313,13 @@ def evaluate_agent(agent, env, n_episodes=10):
     
     return success_rate, avg_score, wrong_key_rate
 
+# generate training plots
 def generate_training_plots(scores, eps_history, success_rate_history, wrong_key_attempts,
                            episode_steps, eval_episodes, eval_success_rates, eval_scores,
                            output_dir, episode_num, template_name, win_episodes, success_history):
-    """Generate comprehensive training plots."""
     plt.figure(figsize=(15, 15))
     
-    # Plot 1: Training Scores
+    # training Scores
     plt.subplot(3, 2, 1)
     plt.plot(np.arange(len(scores)), scores)
     plt.axhline(y=0, color='r', linestyle='-', alpha=0.3)  # Zero line
@@ -335,24 +327,24 @@ def generate_training_plots(scores, eps_history, success_rate_history, wrong_key
     plt.xlabel('Episode #')
     plt.title(f'DQN Training Scores - {template_name} Template')
     
-    # Plot 2: Success Rate
+    # success rate
     plt.subplot(3, 2, 2)
     plt.plot(np.arange(len(success_rate_history)), success_rate_history)
     plt.ylabel('Success Rate')
     plt.xlabel('Episode #')
     plt.title('Training Success Rate')
     
-    # Plot 3: Epsilon Decay
+    # epsilon decay
     plt.subplot(3, 2, 3)
     plt.plot(np.arange(len(eps_history)), eps_history)
     plt.ylabel('Epsilon')
     plt.xlabel('Episode #')
     plt.title('Epsilon Decay')
     
-    # Plot 4: Wrong Key Attempts
+    # wrong key attempts
     plt.subplot(3, 2, 4)
     if len(wrong_key_attempts) > 0:
-        # Calculate wrong key rate over time (sliding window)
+        # wrong key rate over time (sliding window)
         window_size = min(100, len(wrong_key_attempts))
         wrong_key_rates = []
         for i in range(len(wrong_key_attempts)):
@@ -367,10 +359,10 @@ def generate_training_plots(scores, eps_history, success_rate_history, wrong_key
         plt.xlabel('Episode #')
         plt.title(f'Wrong Key Attempt Rate (per step, window={window_size})')
     
-    # Plot 5: Episode Length
+    # episode length
     plt.subplot(3, 2, 5)
     if len(episode_steps) > 0:
-        # Calculate average episode length over time (sliding window)
+        # avg episode length over time (sliding window)
         window_size = min(100, len(episode_steps))
         avg_steps = []
         for i in range(len(episode_steps)):
@@ -385,25 +377,25 @@ def generate_training_plots(scores, eps_history, success_rate_history, wrong_key
         plt.xlabel('Episode #')
         plt.title(f'Average Episode Length (window={window_size})')
     
-    # Plot 6: Evaluation Metrics
+    # evaluation metrics
     plt.subplot(3, 2, 6)
     if eval_episodes and eval_success_rates and eval_scores:
-        # Create twin axis for scores and success rates
+        # twin axis for scores and success rates
         ax1 = plt.gca()
         ax2 = ax1.twinx()
         
-        # Plot success rates on left axis
+        #success rates on left axis
         line1 = ax1.plot(eval_episodes, eval_success_rates, 'b-', label='Success Rate')
         ax1.set_xlabel('Episode #')
         ax1.set_ylabel('Success Rate', color='b')
         ax1.tick_params(axis='y', labelcolor='b')
         
-        # Plot scores on right axis
+        # scores on right axis
         line2 = ax2.plot(eval_episodes, eval_scores, 'r-', label='Avg Score')
         ax2.set_ylabel('Average Score', color='r')
         ax2.tick_params(axis='y', labelcolor='r')
         
-        # Add legend
+        # legend
         lines = line1 + line2
         labels = [l.get_label() for l in lines]
         ax1.legend(lines, labels, loc='upper left')
@@ -414,9 +406,9 @@ def generate_training_plots(scores, eps_history, success_rate_history, wrong_key
     plt.savefig(f"{output_dir}/training_progress_{episode_num}.png")
     plt.close()
     
-    # Create additional specialized plots
+    # additional specialized plots:
     
-    # Moving average of scores (smoother)
+    # moving average of scores (smoother)
     plt.figure(figsize=(10, 6))
     window_size = min(100, len(scores))
     if len(scores) >= window_size:
@@ -429,10 +421,10 @@ def generate_training_plots(scores, eps_history, success_rate_history, wrong_key
         plt.savefig(f"{output_dir}/smoothed_scores_{episode_num}.png")
     plt.close()
     
-    # Distribution of episode lengths for successful vs. failed episodes
+    # distribution of episode lengths for successful vs. failed episodes
     plt.figure(figsize=(12, 6))
     if len(episode_steps) > 0 and len(success_history) > 0:
-        # Create lists of episode lengths for successful and failed episodes
+        # lists of episode lengths for successful and failed episodes
         success_lengths = []
         failure_lengths = []
         
@@ -453,9 +445,7 @@ def generate_training_plots(scores, eps_history, success_rate_history, wrong_key
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train DQN agent on Enhanced LIFO Corridors Environment')
-    parser.add_argument('--template', type=str, default="basic_med", 
-                        choices=["basic_med", "sparse_med", "zipper_med", "bottleneck_med", "bottleneck_hard", "corridors_med"],
-                        help='Template to use')
+    parser.add_argument('--template', type=str, default="basic_med", choices=["basic_med", "sparse_med", "zipper_med", "bottleneck_med", "bottleneck_hard", "corridors_med"], help='Template to use')
     parser.add_argument('--episodes', type=int, default=4000, help='Number of episodes')
     parser.add_argument('--render', action='store_true', help='Render the environment')
     parser.add_argument('--output', type=str, default='enhanced_results', help='Output directory prefix')
@@ -463,13 +453,11 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
     parser.add_argument('--basic-state', action='store_true', help='Use basic state representation (no augmentation)')
     parser.add_argument('--no-reward-shaping', action='store_true', help='Disable reward shaping')
-    parser.add_argument('--ksm-mode', type=str, default="off", 
-                       choices=["off", "standard", "adaptive"],
-                       help='Key Selection Metric mode')
+    parser.add_argument('--ksm-mode', type=str, default="off", choices=["off", "standard", "adaptive"], help='Key Selection Metric mode')
     
     args = parser.parse_args()
     
-    # Set random seeds
+    # set random seeds
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     random.seed(args.seed)
@@ -481,7 +469,7 @@ if __name__ == "__main__":
     print(f"Reward shaping: {'OFF' if args.no_reward_shaping else 'ON'}")
     print(f"Key Selection Metric (KSM): {args.ksm_mode}")
     
-    # Run training with parameters
+    # run training with parameters
     scores, win_episodes, success_rates, wrong_key_attempts = train_enhanced_dqn(
         template_name=args.template,
         n_episodes=args.episodes, 
