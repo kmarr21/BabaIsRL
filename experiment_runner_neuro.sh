@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# experiment_runner_neuro.sh
 # run neurosymbolic experiment in the background
 
 # create directory structure
