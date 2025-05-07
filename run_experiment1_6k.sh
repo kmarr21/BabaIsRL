@@ -1,21 +1,20 @@
 #!/bin/bash
 
-# run_experiment1_6k.sh
-# Script to run Experiment 1 with 6K episodes
+# script to run Experiment 1 with 6K episodes
 
 echo "Starting Experiment 1 (6K): Ablation Study"
 echo "======================================"
 
-# Templates to run
+# templates to run
 TEMPLATES=("basic_med" "sparse_med" "zipper_med" "bottleneck_med" "bottleneck_hard" "corridors_med")
 
-# Seeds to use
+# seeds to use
 SEEDS=(42 101 202 303 404)
 
-# Directory for experiment results
+# directory for experiment results
 EXP_DIR="experiments/experiment1_6k"
 
-# Function to run a single configuration with retry mechanism
+# run a single configuration w/ retry mechanism
 run_with_retry() {
     local template=$1
     local config_name=$2
@@ -29,10 +28,10 @@ run_with_retry() {
 
     mkdir -p "$output_dir"
     
-    # Build command - note the 6000 episodes
+    # build command (6k episodes)
     cmd="python train_enhanced_dqn.py --template $template --episodes 6000 --output $output_dir --seed $seed"
     
-    # Add configuration options
+    # add configuration options
     if [ "$reward_shaping" = false ]; then
         cmd="${cmd} --no-reward-shaping"
     fi
@@ -47,9 +46,9 @@ run_with_retry() {
     
     echo "Running: $cmd"
     
-    # Retry loop
+    # retry loop
     while [ $retry_count -lt $max_retries ]; do
-        # Run the command
+        # run the command
         $cmd > "${output_dir}/training.log" 2>&1
         exit_code=$?
         
@@ -67,18 +66,18 @@ run_with_retry() {
     return 1
 }
 
-# Run experiments for each template
+# run experiments for each template
 for template in "${TEMPLATES[@]}"; do
     echo ""
     echo "Starting template: $template"
     echo "------------------------"
     
-    # Create template directory
+    # create template directory
     mkdir -p "${EXP_DIR}/template_${template}"
     
-    # Run each configuration with all seeds
+    # run each configuration with all seeds
     for seed in "${SEEDS[@]}"; do
-        # Baseline DQN (no reward shaping, no state aug)
+        # baseline DQN (no reward shaping, no state aug)
         run_with_retry "$template" "baseline_dqn" false false "off" "$seed"
         
         # DQN with only reward shaping
@@ -87,7 +86,7 @@ for template in "${TEMPLATES[@]}"; do
         # DQN with only state augmentation
         run_with_retry "$template" "state_aug_only" false true "off" "$seed"
         
-        # Full enhanced DQN (reward shaping + state augmentation)
+        # full enhanced DQN (reward shaping + state augmentation)
         run_with_retry "$template" "full_enhanced_dqn" true true "off" "$seed"
     done
 done
